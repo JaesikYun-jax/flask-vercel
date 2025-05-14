@@ -6,18 +6,41 @@ import uuid
 import logging
 from datetime import datetime
 
-# 상대 임포트를 절대 임포트로 변경
-try:
-    from api.ai_handler import AIHandler, create_openai_client
-except ImportError:
-    from ai_handler import AIHandler, create_openai_client
-
 # 로깅 설정 강화
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# 상대 임포트를 절대 임포트로 변경
+try:
+    # AIHandler 임포트 부분을 주석 처리하고 MockAIHandler 구현
+    # from api.ai_handler import AIHandler, create_openai_client
+    logger.info("MockAIHandler 사용")
+    
+    class MockAIHandler:
+        def __init__(self):
+            logger.info("MockAIHandler 초기화됨")
+        
+        def generate_response(self, system_prompt, user_message, **kwargs):
+            logger.info(f"MockAIHandler.generate_response 호출: {user_message[:30]}...")
+            if "전화번호" in user_message.lower():
+                return "제 전화번호는 010-1234-5678입니다."
+            return f"안녕하세요! 질문에 답변드립니다: {user_message[:20]}..."
+    
+    def create_openai_client():
+        return None
+        
+except Exception as e:
+    logger.error(f"AI 핸들러 임포트 오류: {str(e)}")
+    # 오류 발생 시 빈 클래스 정의
+    class MockAIHandler:
+        def __init__(self):
+            pass
+        
+        def generate_response(self, system_prompt, user_message, **kwargs):
+            return "AI 응답 생성 실패"
 
 # Flask 앱 초기화
 app = Flask(__name__)
@@ -53,7 +76,7 @@ GAME_ITEMS = [
 ]
 
 # AI 핸들러 초기화
-ai_handler = AIHandler()
+ai_handler = MockAIHandler()
 
 # 응답 생성 함수
 def create_response(success=True, data=None, message=None, error=None, status_code=200):
@@ -475,7 +498,6 @@ def debug_info():
     """디버깅 정보 제공"""
     debug_data = {
         "status": "running",
-        "flask_version": Flask.__version__,
         "python_version": sys.version,
         "environment": os.environ.get('VERCEL_ENV', 'unknown'),
         "games_count": len(GAMES),
@@ -484,34 +506,10 @@ def debug_info():
     }
     return jsonify(debug_data)
 
-# Vercel 서버리스 함수 핸들러
-def handler(event, context):
-    """Vercel 서버리스 함수 핸들러"""
+# Vercel 서버리스 함수 핸들러 (단순화)
+def handler(request, response):
     logger.info("핸들러 호출됨")
-    logger.info(f"이벤트: {event}")
-    
-    try:
-        return app(event, context)
-    except Exception as e:
-        logger.error(f"핸들러 실행 오류: {e}")
-        error_response = {
-            "statusCode": 500,
-            "body": json.dumps({
-                "error": str(e),
-                "success": False
-            }),
-            "headers": {
-                "Content-Type": "application/json"
-            }
-        }
-        logger.info(f"오류 응답 반환: {error_response}")
-        return error_response
+    return app
 
-# Flask 앱을 직접 임포트하기 위한 별도 핸들러
-def index_handler(event, context):
-    """Vercel 서버리스 함수용 메인 핸들러"""
-    logger.info("index_handler 호출됨")
-    return handler(event, context)
-
-# Vercel 서버리스 엔드포인트를 위한 함수 노출
-index = app 
+# 최상위 모듈에 app 노출
+app.debug = True 

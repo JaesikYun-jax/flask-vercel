@@ -1,5 +1,11 @@
 {
   "version": 2,
+  "functions": {
+    "api/vercel_handler.py": {
+      "memory": 1024,
+      "maxDuration": 10
+    }
+  },
   "builds": [
     {
       "src": "api/vercel_handler.py",
@@ -13,11 +19,11 @@
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "api/vercel_handler.py"
+      "dest": "/api/vercel_handler.py"
     },
     {
       "src": "/(.*)",
-      "dest": "public/$1"
+      "dest": "/public/$1"
     },
     {
       "handle": "filesystem"
@@ -36,5 +42,8 @@
         { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization" }
       ]
     }
-  ]
+  ],
+  "env": {
+    "PYTHONUNBUFFERED": "1"
+  }
 } 
