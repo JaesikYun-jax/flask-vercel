@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API 테스트 대시보드 - AI 추측 게임</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        .card {
+            margin-bottom: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .card-header {
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .endpoint-status {
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 10px;
+        }
+        .status-pending {
+            background-color: #6c757d;
+        }
+        .status-success {
+            background-color: #28a745;
+        }
+        .status-error {
+            background-color: #dc3545;
+        }
+        .method-badge {
+            padding: 3px 8px;
+            border-radius: 4px;
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        .method-get {
+            background-color: #61affe;
+        }
+        .method-post {
+            background-color: #49cc90;
+        }
+        .response-area {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        pre {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+            white-space: pre-wrap;
+        }
+        .endpoint-url {
+            font-family: monospace;
+            margin-left: 5px;
+        }
+        .test-all-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+        .latency {
+            font-size: 12px;
+            color: #6c757d;
+        }
+        /* 텝 메뉴 스타일 */
+        .nav-tabs .nav-link.active {
+            font-weight: bold;
+            border-top: 3px solid #0d6efd;
+        }
+        #summary-table th, #summary-table td {
+            padding: 10px;
+            text-align: left;
+        }
+        .connection-info {
+            padding: 10px 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            background-color: #e9ecef;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <h1 class="mb-4 text-center">API 테스트 대시보드</h1>
+        
+        <div class="connection-info" id="connection-info">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <strong>서버 URL:</strong> <span id="server-url">확인 중...</span>
+                </div>
+                <div>
+                    <strong>상태:</strong> 
+                    <span class="endpoint-status status-pending" id="global-status"></span>
+                    <span id="global-status-text">확인 중...</span>
+                </div>
+            </div>
+        </div>
+
+        <ul class="nav nav-tabs mb-4" id="myTab" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="dashboard-tab" data-bs-toggle="tab" data-bs-target="#dashboard" type="button" role="tab">대시보드</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="test-tab" data-bs-toggle="tab" data-bs-target="#test" type="button" role="tab">API 테스터</button>
+            </li>
+        </ul>
+
+        <div class="tab-content" id="myTabContent">
+            <!-- 대시보드 탭 -->
+            <div class="tab-pane fade show active" id="dashboard" role="tabpanel">
+                <div class="row mb-4">
+                    <div class="col-md-12">
+                        <div class="card">
+                            <div class="card-header bg-primary text-white">API 상태 요약</div>
+                            <div class="card-body">
+                                <table class="table table-bordered" id="summary-table">
+                                    <thead>
+                                        <tr>
+                                            <th>엔드포인트</th>
+                                            <th>메서드</th>
+                                            <th>상태</th>
+                                            <th>응답 시간</th>
+                                            <th>마지막 테스트</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="summary-table-body">
+                                        <!-- 여기에 API 요약 정보가 동적으로 추가됩니다 -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- API 테스터 탭 -->
+            <div class="tab-pane fade" id="test" role="tabpanel">
+                <div class="row" id="endpoint-cards">
+                    <!-- API 엔드포인트 카드들이 여기에 동적으로 추가됩니다 -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <button class="btn btn-primary test-all-btn" onclick="testAllEndpoints()">
+        모든 API 테스트
+    </button>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // API 엔드포인트 정의
+        const endpoints = [
+            { id: 'health', name: '서버 상태', method: 'GET', url: '/api/health', description: '서버 상태를 확인합니다.' },
+            { id: 'games', name: '게임 목록', method: 'GET', url: '/api/games', description: '사용 가능한 게임 항목 목록을 조회합니다.' },
+            { id: 'debug', name: '디버그 정보', method: 'GET', url: '/api/debug', description: '서버 디버그 정보를 조회합니다.' },
+            { 
+                id: 'start', 
+                name: '게임 시작', 
+                method: 'POST', 
+                url: '/api/start', 
+                description: '새 게임을 시작합니다.',
+                body: { item_id: 1 }
+            },
+            { 
+                id: 'ask', 
+                name: '질문하기', 
+                method: 'POST', 
+                url: '/api/ask', 
+                description: 'AI에게 질문합니다.',
+                body: { game_id: 'game_test', message: '당신은 누구인가요?' }
+            },
+            { 
+                id: 'end', 
+                name: '게임 종료', 
+                method: 'POST', 
+                url: '/api/end', 
+                description: '게임을 종료합니다.',
+                body: { game_id: 'game_test' }
+            }
+        ];
+
+        // 대체 URL 경로들 - API 경로 없이 시도하기 위한 설정
+        const altPaths = {
+            '/api/health': '/health',
+            '/api/games': '/games',
+            '/api/start': '/start',
+            '/api/ask': '/ask',
+            '/api/end': '/end',
+            '/api/debug': '/debug'
+        };
+
+        // API 상태 데이터
+        const apiStatus = {};
+        let serverBaseUrl = '';
+
+        // 페이지 로드 시 실행
+        document.addEventListener('DOMContentLoaded', function() {
+            // 서버 URL 확인
+            detectServerUrl();
+            // 엔드포인트 카드 생성
+            createEndpointCards();
+            // 요약 테이블 초기화
+            initSummaryTable();
+            // 모든 API 자동 테스트
+            setTimeout(testAllEndpoints, 500);
+        });
+
+        // 서버 URL 감지
+        function detectServerUrl() {
+            serverBaseUrl = window.location.origin;
+            document.getElementById('server-url').textContent = serverBaseUrl;
+        }
+
+        // 엔드포인트 카드 생성
+        function createEndpointCards() {
+            const container = document.getElementById('endpoint-cards');
+            
+            endpoints.forEach(endpoint => {
+                // API 상태 초기화
+                apiStatus[endpoint.id] = {
+                    status: 'pending',
+                    latency: 0,
+                    lastTested: '-',
+                    response: null,
+                    error: null
+                };
+                
+                const card = document.createElement('div');
+                card.className = 'col-md-6';
+                card.innerHTML = `
+                    <div class="card">
+                        <div class="card-header">
+                            <div>
+                                <span class="endpoint-status status-pending" id="status-${endpoint.id}"></span>
+                                <span class="method-badge method-${endpoint.method.toLowerCase()}">${endpoint.method}</span>
+                                <span class="endpoint-url">${endpoint.url}</span>
+                            </div>
+                            <button class="btn btn-sm btn-outline-primary" onclick="testEndpoint('${endpoint.id}')">테스트</button>
+                        </div>
+                        <div class="card-body">
+                            <h5 class="card-title">${endpoint.name}</h5>
+                            <p class="card-text">${endpoint.description}</p>
+                            ${endpoint.body ? `
+                                <div class="mb-3">
+                                    <label class="form-label">요청 본문:</label>
+                                    <textarea class="form-control" id="body-${endpoint.id}" rows="3">${JSON.stringify(endpoint.body, null, 2)}</textarea>
+                                </div>
+                            ` : ''}
+                            <div id="latency-${endpoint.id}" class="latency"></div>
+                            <div class="response-area" id="response-${endpoint.id}"></div>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        // 요약 테이블 초기화
+        function initSummaryTable() {
+            const tbody = document.getElementById('summary-table-body');
+            tbody.innerHTML = '';
+            
+            endpoints.forEach(endpoint => {
+                const row = document.createElement('tr');
+                row.id = `summary-row-${endpoint.id}`;
+                row.innerHTML = `
+                    <td>${endpoint.url}</td>
+                    <td><span class="method-badge method-${endpoint.method.toLowerCase()}">${endpoint.method}</span></td>
+                    <td>
+                        <span class="endpoint-status status-pending" id="summary-status-${endpoint.id}"></span>
+                        <span id="summary-status-text-${endpoint.id}">확인 중...</span>
+                    </td>
+                    <td id="summary-latency-${endpoint.id}">-</td>
+                    <td id="summary-last-tested-${endpoint.id}">-</td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        // 모든 엔드포인트 테스트
+        async function testAllEndpoints() {
+            document.getElementById('global-status').className = 'endpoint-status status-pending';
+            document.getElementById('global-status-text').textContent = '테스트 중...';
+            
+            for (const endpoint of endpoints) {
+                await testEndpoint(endpoint.id);
+                // 각 API 호출 사이에 300ms 딜레이
+                await new Promise(resolve => setTimeout(resolve, 300));
+            }
+            
+            updateGlobalStatus();
+        }
+
+        // 글로벌 상태 업데이트
+        function updateGlobalStatus() {
+            const allStatuses = Object.values(apiStatus).map(s => s.status);
+            const hasError = allStatuses.includes('error');
+            const allSuccess = allStatuses.every(s => s === 'success');
+            
+            const statusElement = document.getElementById('global-status');
+            const statusTextElement = document.getElementById('global-status-text');
+            
+            if (hasError) {
+                statusElement.className = 'endpoint-status status-error';
+                statusTextElement.textContent = '일부 API에 문제가 있습니다';
+            } else if (allSuccess) {
+                statusElement.className = 'endpoint-status status-success';
+                statusTextElement.textContent = '모든 API가 정상 작동합니다';
+            } else {
+                statusElement.className = 'endpoint-status status-pending';
+                statusTextElement.textContent = '테스트 진행 중...';
+            }
+        }
+
+        // 개별 엔드포인트 테스트
+        async function testEndpoint(endpointId) {
+            const endpoint = endpoints.find(e => e.id === endpointId);
+            if (!endpoint) return;
+            
+            // UI 상태 업데이트
+            updateEndpointUI(endpointId, 'pending', null);
+            
+            try {
+                // 요청 본문 가져오기 (POST 메서드인 경우)
+                let body = null;
+                if (endpoint.method === 'POST') {
+                    const bodyElement = document.getElementById(`body-${endpointId}`);
+                    if (bodyElement) {
+                        try {
+                            body = JSON.parse(bodyElement.value);
+                        } catch (e) {
+                            throw new Error(`요청 본문 JSON 파싱 오류: ${e.message}`);
+                        }
+                    }
+                }
+                
+                // 시작 시간 기록
+                const startTime = performance.now();
+                
+                // API 요청 실행
+                let response;
+                let result;
+                let error = null;
+                
+                try {
+                    // 기본 API 경로로 시도
+                    response = await fetchWithTimeout(endpoint.url, {
+                        method: endpoint.method,
+                        headers: { 'Content-Type': 'application/json' },
+                        body: body ? JSON.stringify(body) : undefined
+                    });
+                    
+                    result = await response.json();
+                } catch (err) {
+                    console.log(`기본 경로 ${endpoint.url} 실패:`, err);
+                    
+                    // 대체 경로가 있으면 시도
+                    const altPath = altPaths[endpoint.url];
+                    if (altPath) {
+                        try {
+                            console.log(`대체 경로 시도: ${altPath}`);
+                            response = await fetchWithTimeout(altPath, {
+                                method: endpoint.method,
+                                headers: { 'Content-Type': 'application/json' },
+                                body: body ? JSON.stringify(body) : undefined
+                            });
+                            
+                            result = await response.json();
+                        } catch (altErr) {
+                            console.log(`대체 경로 ${altPath} 실패:`, altErr);
+                            throw err; // 원래 오류 다시 발생
+                        }
+                    } else {
+                        throw err;
+                    }
+                }
+                
+                // 응답 시간 계산
+                const endTime = performance.now();
+                const latency = Math.round(endTime - startTime);
+                
+                // API 상태 업데이트
+                const status = response.ok ? 'success' : 'error';
+                apiStatus[endpointId] = {
+                    status,
+                    latency,
+                    lastTested: new Date().toLocaleTimeString(),
+                    response: result,
+                    error: response.ok ? null : `HTTP 오류: ${response.status}`
+                };
+                
+                // UI 업데이트
+                updateEndpointUI(endpointId, status, result, latency);
+            } catch (error) {
+                console.error(`${endpoint.url} 테스트 오류:`, error);
+                
+                // API 상태 업데이트
+                apiStatus[endpointId] = {
+                    status: 'error',
+                    latency: 0,
+                    lastTested: new Date().toLocaleTimeString(),
+                    response: null,
+                    error: error.message
+                };
+                
+                // UI 업데이트
+                updateEndpointUI(endpointId, 'error', { error: error.message });
+            }
+            
+            // 글로벌 상태 업데이트
+            updateGlobalStatus();
+        }
+
+        // UI 업데이트 함수
+        function updateEndpointUI(endpointId, status, data, latency = 0) {
+            // 상태 표시기 업데이트
+            const statusElement = document.getElementById(`status-${endpointId}`);
+            const summaryStatusElement = document.getElementById(`summary-status-${endpointId}`);
+            const summaryStatusTextElement = document.getElementById(`summary-status-text-${endpointId}`);
+            
+            if (statusElement) statusElement.className = `endpoint-status status-${status}`;
+            if (summaryStatusElement) summaryStatusElement.className = `endpoint-status status-${status}`;
+            
+            // 상태 텍스트 설정
+            let statusText = '확인 중...';
+            if (status === 'success') statusText = '정상';
+            else if (status === 'error') statusText = '오류';
+            if (summaryStatusTextElement) summaryStatusTextElement.textContent = statusText;
+            
+            // 응답 시간 표시
+            const latencyElement = document.getElementById(`latency-${endpointId}`);
+            const summaryLatencyElement = document.getElementById(`summary-latency-${endpointId}`);
+            
+            if (latency && latencyElement) {
+                latencyElement.textContent = `응답 시간: ${latency}ms`;
+                if (summaryLatencyElement) summaryLatencyElement.textContent = `${latency}ms`;
+            }
+            
+            // 마지막 테스트 시간 업데이트
+            const lastTestedElement = document.getElementById(`summary-last-tested-${endpointId}`);
+            if (lastTestedElement) {
+                lastTestedElement.textContent = new Date().toLocaleTimeString();
+            }
+            
+            // 응답 데이터 표시
+            const responseElement = document.getElementById(`response-${endpointId}`);
+            if (responseElement && data) {
+                responseElement.innerHTML = `
+                    <div class="alert alert-${status === 'success' ? 'success' : 'danger'}">
+                        ${status === 'success' ? '성공' : '오류'}
+                    </div>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+            }
+        }
+
+        // 타임아웃 있는 fetch 함수
+        async function fetchWithTimeout(url, options = {}, timeout = 10000) {
+            const controller = new AbortController();
+            const id = setTimeout(() => controller.abort(), timeout);
+            
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    signal: controller.signal
+                });
+                clearTimeout(id);
+                return response;
+            } catch (error) {
+                clearTimeout(id);
+                if (error.name === 'AbortError') {
+                    throw new Error(`요청 시간 초과 (${timeout}ms)`);
+                }
+                throw error;
+            }
+        }
+    </script>
+</body>
+</html> 

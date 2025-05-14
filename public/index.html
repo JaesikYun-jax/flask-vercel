@@ -75,6 +75,25 @@
             font-size: 0.9em;
             color: #777;
         }
+        .dashboard-btn {
+            display: block;
+            width: 100%;
+            max-width: 300px;
+            margin: 20px auto;
+            padding: 12px 20px;
+            text-align: center;
+            background-color: #3498db;
+            color: white;
+            border-radius: 5px;
+            font-weight: bold;
+            text-decoration: none;
+            transition: background-color 0.3s;
+        }
+        .dashboard-btn:hover {
+            background-color: #2980b9;
+            text-decoration: none;
+            color: white;
+        }
     </style>
 </head>
 <body>
@@ -87,6 +106,8 @@
         <h3>서버 상태 확인 중...</h3>
         <p>API 서버 상태를 확인하고 있습니다.</p>
     </div>
+
+    <a href="/dashboard.html" class="dashboard-btn">API 테스트 대시보드 열기</a>
 
     <h2>API 엔드포인트</h2>
     
@@ -174,6 +195,7 @@
                     statusElement.innerHTML = `
                         <h3>✅ 서버 온라인</h3>
                         <p>${data.message || '서버가 정상적으로 작동 중입니다.'}</p>
+                        <p><a href="/dashboard.html">API 테스트 대시보드</a>에서 모든 API 엔드포인트를 테스트해보세요.</p>
                     `;
                     statusElement.classList.remove('offline');
                     
@@ -189,6 +211,7 @@
                     <h3>❌ 서버 오프라인</h3>
                     <p>API 서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.</p>
                     <p>오류: ${error.message}</p>
+                    <p><a href="/dashboard.html">API 테스트 대시보드</a>를 사용하여 문제를 진단해보세요.</p>
                 `;
                 statusElement.classList.add('offline');
             }
