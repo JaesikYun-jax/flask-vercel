@@ -148,16 +148,21 @@
             
             try {
                 const response = await fetch('/api/health');
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP 오류: ${response.status}`);
+                }
+                
                 const data = await response.json();
                 
-                if (data.status === 'healthy') {
+                if (data.status === 'online') {
                     statusElement.innerHTML = `
                         <h3>✅ 서버 온라인</h3>
                         <p>${data.message || '서버가 정상적으로 작동 중입니다.'}</p>
                     `;
                     statusElement.classList.remove('offline');
                 } else {
-                    throw new Error('서버 상태가 healthy가 아닙니다.');
+                    throw new Error('서버 상태가 online이 아닙니다.');
                 }
             } catch (error) {
                 statusElement.innerHTML = `
@@ -166,6 +171,7 @@
                     <p>오류: ${error.message}</p>
                 `;
                 statusElement.classList.add('offline');
+                console.error('서버 상태 확인 오류:', error);
             }
         }
         
