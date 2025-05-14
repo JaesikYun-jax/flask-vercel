@@ -5,7 +5,12 @@ import json
 import uuid
 import logging
 from datetime import datetime
-from .ai_handler import AIHandler, create_openai_client
+
+# 상대 임포트를 절대 임포트로 변경
+try:
+    from api.ai_handler import AIHandler, create_openai_client
+except ImportError:
+    from ai_handler import AIHandler, create_openai_client
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -455,4 +460,12 @@ def end_game():
 # Vercel 서버리스 함수 핸들러
 def handler(event, context):
     """Vercel 서버리스 함수 핸들러"""
-    return app(event, context) 
+    return app(event, context)
+
+# Flask 앱을 직접 임포트하기 위한 별도 핸들러
+def index_handler(event, context):
+    """Vercel 서버리스 함수용 메인 핸들러"""
+    return handler(event, context)
+
+# Vercel 서버리스 엔드포인트를 위한 함수 노출
+index = app 
