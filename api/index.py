@@ -484,6 +484,15 @@ def end_game():
         return jsonify(response), status_code
 
 # CORS 처리 추가
+@app.route('/api/options', methods=['OPTIONS'])
+def handle_options():
+    """CORS preflight 요청 처리"""
+    response = jsonify({})
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
+
 @app.after_request
 def after_request(response):
     """CORS 헤더 추가"""
@@ -502,14 +511,31 @@ def debug_info():
         "environment": os.environ.get('VERCEL_ENV', 'unknown'),
         "games_count": len(GAMES),
         "game_items_count": len(GAME_ITEMS),
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
+        "request_headers": dict(request.headers)
     }
     return jsonify(debug_data)
 
-# Vercel 서버리스 함수 핸들러 (단순화)
-def handler(request, response):
-    logger.info("핸들러 호출됨")
-    return app
+# 적절한 404 핸들러 추가
+@app.errorhandler(404)
+def page_not_found(e):
+    """404 오류 핸들러"""
+    return jsonify({
+        "success": False,
+        "error": "요청한 엔드포인트를 찾을 수 없습니다.",
+        "status_code": 404
+    }), 404
 
-# 최상위 모듈에 app 노출
-app.debug = True 
+# 적절한 500 핸들러 추가
+@app.errorhandler(500)
+def internal_server_error(e):
+    """500 오류 핸들러"""
+    return jsonify({
+        "success": False,
+        "error": "서버 내부 오류가 발생했습니다.",
+        "status_code": 500
+    }), 500
+
+# 로컬 개발용 코드
+if __name__ == '__main__':
+    app.run(debug=True) 
