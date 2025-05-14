@@ -12,8 +12,11 @@ try:
 except ImportError:
     from ai_handler import AIHandler, create_openai_client
 
-# 로깅 설정
-logging.basicConfig(level=logging.INFO)
+# 로깅 설정 강화
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 # Flask 앱 초기화
@@ -457,14 +460,57 @@ def end_game():
         )
         return jsonify(response), status_code
 
+# CORS 처리 추가
+@app.after_request
+def after_request(response):
+    """CORS 헤더 추가"""
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
+
+# 디버깅용 라우트 추가
+@app.route('/api/debug', methods=['GET'])
+def debug_info():
+    """디버깅 정보 제공"""
+    debug_data = {
+        "status": "running",
+        "flask_version": Flask.__version__,
+        "python_version": sys.version,
+        "environment": os.environ.get('VERCEL_ENV', 'unknown'),
+        "games_count": len(GAMES),
+        "game_items_count": len(GAME_ITEMS),
+        "timestamp": datetime.now().isoformat()
+    }
+    return jsonify(debug_data)
+
 # Vercel 서버리스 함수 핸들러
 def handler(event, context):
     """Vercel 서버리스 함수 핸들러"""
-    return app(event, context)
+    logger.info("핸들러 호출됨")
+    logger.info(f"이벤트: {event}")
+    
+    try:
+        return app(event, context)
+    except Exception as e:
+        logger.error(f"핸들러 실행 오류: {e}")
+        error_response = {
+            "statusCode": 500,
+            "body": json.dumps({
+                "error": str(e),
+                "success": False
+            }),
+            "headers": {
+                "Content-Type": "application/json"
+            }
+        }
+        logger.info(f"오류 응답 반환: {error_response}")
+        return error_response
 
 # Flask 앱을 직접 임포트하기 위한 별도 핸들러
 def index_handler(event, context):
     """Vercel 서버리스 함수용 메인 핸들러"""
+    logger.info("index_handler 호출됨")
     return handler(event, context)
 
 # Vercel 서버리스 엔드포인트를 위한 함수 노출
