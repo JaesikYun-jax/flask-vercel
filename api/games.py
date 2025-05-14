@@ -1,53 +1,62 @@
-from http.server import BaseHTTPRequestHandler
+"""
+게임 목록 API 엔드포인트
+"""
 import json
-from .utils import create_response, load_game_items
 
-def handler(request):
-    try:
-        # 게임 항목 로드
-        items = load_game_items()
-        
-        # 필요한 필드만 전송하고 난이도는 제외
-        public_items = []
-        for item in items:
-            public_items.append({
-                'id': item.get('id'),
-                'title': item.get('title'),
-                'category': item.get('category'),
-                'max_turns': item.get('max_turns', 10),
-                'win_condition': item.get('win_condition'),
-                'character_name': item.get('character_name', 'AI')
-            })
-        
-        response, status_code = create_response(
-            success=True,
-            data=public_items
-        )
-        
+# 샘플 게임 데이터
+GAMES = [
+    {
+        "id": "1",
+        "title": "신비한 인물 찾기",
+        "category": "인물",
+        "character_name": "알 수 없는 인물",
+        "max_turns": 10
+    },
+    {
+        "id": "2",
+        "title": "플러팅 마스터",
+        "category": "대화",
+        "character_name": "신비한 상대",
+        "max_turns": 5
+    }
+]
+
+def handle(request, context):
+    """
+    게임 목록 조회 API
+    """
+    # CORS 헤더
+    headers = {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Content-Type': 'application/json'
+    }
+    
+    # OPTIONS 요청(CORS preflight) 처리
+    if request.get('method', '') == 'OPTIONS':
         return {
-            "statusCode": status_code,
-            "body": json.dumps(response),
-            "headers": {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Headers": "Content-Type",
-                "Access-Control-Allow-Methods": "GET"
-            }
+            'statusCode': 200,
+            'headers': headers,
+            'body': ''
         }
-    except Exception as e:
-        response, status_code = create_response(
-            success=False,
-            error=str(e),
-            status_code=500
-        )
+    
+    try:
+        # 게임 데이터 반환
+        body = json.dumps({
+            'success': True,
+            'data': GAMES
+        })
         
-        return {
-            "statusCode": status_code,
-            "body": json.dumps(response),
-            "headers": {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Headers": "Content-Type",
-                "Access-Control-Allow-Methods": "GET"
-            }
-        } 
+    except Exception as e:
+        body = json.dumps({
+            'success': False,
+            'error': str(e)
+        })
+    
+    # 응답 반환
+    return {
+        'statusCode': 200,
+        'headers': headers,
+        'body': body
+    } 

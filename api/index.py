@@ -106,4 +106,38 @@ def debug_info():
 
 # 로컬 개발용
 if __name__ == '__main__':
-    app.run(debug=True) 
+    app.run(debug=True)
+
+def handle(request, context):
+    """
+    API 서버 루트 엔드포인트 핸들러
+    """
+    # CORS 헤더
+    headers = {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Content-Type': 'application/json'
+    }
+    
+    # OPTIONS 요청(CORS preflight) 처리
+    if request.get('method', '') == 'OPTIONS':
+        return {
+            'statusCode': 200,
+            'headers': headers,
+            'body': ''
+        }
+    
+    # 응답 데이터
+    response_data = {
+        'status': 'online',
+        'message': 'AI 추측 게임 API 서버 작동 중',
+        'version': '1.0.0'
+    }
+    
+    # 응답 반환
+    return {
+        'statusCode': 200,
+        'headers': headers,
+        'body': json.dumps(response_data)
+    } 

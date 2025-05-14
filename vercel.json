@@ -2,12 +2,8 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/vercel_handler.py",
-      "use": "@vercel/python",
-      "config": {
-        "maxLambdaSize": "50mb",
-        "runtime": "python3.9"
-      }
+      "src": "api/*.py",
+      "use": "@vercel/python"
     },
     {
       "src": "public/**",
@@ -16,8 +12,20 @@
   ],
   "routes": [
     {
-      "src": "/api/(.*)",
-      "dest": "/api/vercel_handler.py"
+      "src": "/api/health",
+      "dest": "/api/health.py"
+    },
+    {
+      "src": "/api/debug",
+      "dest": "/api/debug.py"
+    },
+    {
+      "src": "/api/games",
+      "dest": "/api/games.py"
+    },
+    {
+      "src": "/api",
+      "dest": "/api/index.py"
     },
     {
       "handle": "filesystem"
