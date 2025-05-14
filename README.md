@@ -8,7 +8,8 @@
 flask-vercel/
 ├── api/
 │   ├── index.py            # Flask 애플리케이션 (메인 엔트리포인트)
-│   └── ai_handler.py       # AI 핸들러 모듈
+│   ├── vercel_handler.py   # Vercel 서버리스 함수 핸들러
+│   └── wsgi.py             # WSGI 애플리케이션 설정
 ├── public/                 # 정적 파일 디렉토리
 │   └── index.html          # API 문서 페이지
 ├── vercel.json             # Vercel 설정 파일
@@ -23,6 +24,7 @@ flask-vercel/
 - `POST /api/start`: 새 게임 시작
 - `POST /api/ask`: AI에게 질문하기
 - `POST /api/end`: 게임 종료
+- `GET /api/debug`: 디버그 정보 확인 (개발용)
 
 ## 환경 변수
 
@@ -41,4 +43,11 @@ flask-vercel/
 
 ## Vercel에 배포하기
 
-이 저장소는 Vercel에 바로 배포할 수 있도록 구성되어 있습니다. Vercel 대시보드에서 저장소를 연결하고 필요한 환경 변수를 설정하면 됩니다. 
+이 저장소는 Vercel에 바로 배포할 수 있도록 구성되어 있습니다. Vercel 대시보드에서 저장소를 연결하고 필요한 환경 변수를 설정하면 됩니다.
+
+## 최근 업데이트
+
+마지막 업데이트: 2025-05-14
+- 서버리스 함수 구조 개선
+- MockAIHandler 추가
+- 오류 처리 강화 
