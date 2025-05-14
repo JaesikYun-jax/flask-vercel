@@ -2,7 +2,7 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/*.py",
+      "src": "api/index.py",
       "use": "@vercel/python"
     },
     {
@@ -12,19 +12,7 @@
   ],
   "routes": [
     {
-      "src": "/api/health",
-      "dest": "/api/health.py"
-    },
-    {
-      "src": "/api/debug",
-      "dest": "/api/debug.py"
-    },
-    {
-      "src": "/api/games",
-      "dest": "/api/games.py"
-    },
-    {
-      "src": "/api",
+      "src": "/api/(.*)",
       "dest": "/api/index.py"
     },
     {
