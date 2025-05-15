@@ -2,7 +2,7 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/vercel_handler.py",
+      "src": "api/index.py",
       "use": "@vercel/python",
       "config": {
         "maxLambdaSize": "15mb",
@@ -17,7 +17,7 @@
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "/api/vercel_handler.py"
+      "dest": "/api/index.py"
     },
     {
       "handle": "filesystem"
@@ -29,7 +29,6 @@
   ],
   "env": {
     "PYTHONUNBUFFERED": "1",
-    "DEBUG": "False",
-    "ENV": "production"
+    "DEBUG": "False"
   }
 } 
