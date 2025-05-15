@@ -22,26 +22,9 @@ logger = logging.getLogger(__name__)
 logger.info("=== API 서버 시작 중 ===")
 logger.info(f"Python version: {sys.version}")
 logger.info(f"Current directory: {os.getcwd()}")
-try:
-    logger.info(f"Directory contents: {os.listdir('.')}")
-except Exception as e:
-    logger.error(f"디렉토리 내용 확인 실패: {str(e)}")
-logger.info(f"Is Vercel environment: {bool(os.environ.get('VERCEL'))}")
 
 # Flask 앱 초기화
 app = Flask(__name__)
-
-# OpenAI API 설정
-try:
-    import openai
-    openai.api_key = os.environ.get('OPENAI_API_KEY', '')
-    logger.info(f"OpenAI API key 설정됨: {bool(openai.api_key)}")
-except ImportError:
-    logger.error("OpenAI 모듈을 임포트할 수 없습니다.")
-    openai = None
-except Exception as e:
-    logger.error(f"OpenAI 설정 오류: {str(e)}")
-    openai = None
 
 # 게임 세션 데이터 저장소
 GAME_SESSIONS = {}
@@ -52,8 +35,39 @@ PROMPTS_DATA_FILE = "data/game_prompts.json"
 GAME_LOGS_FILE = "data/game_logs.json"
 
 # 초기 빈 항목 리스트 선언
-GAMES = []
-PROMPTS = {}
+GAMES = [
+    {
+        "id": 1,
+        "title": "플러팅 고수! 전화번호 따기",
+        "category": "플러팅",
+        "character_name": "윤지혜",
+        "character_setting": "당신은 카페에서 우연히 마주친 매력적인 사람입니다. 친절하지만 쉽게 개인정보를 알려주지 않는 성격입니다.",
+        "max_turns": 5,
+        "win_condition": "상대방의 전화번호를 얻어낸다",
+        "lose_condition": "턴 제한을 초과하거나 상대방이 대화를 거부한다",
+        "difficulty": "보통"
+    },
+    {
+        "id": 2,
+        "title": "파티에서 번호 교환하기",
+        "category": "플러팅",
+        "character_name": "김민준",
+        "character_setting": "당신은 친구의 파티에서 만난 사람입니다. 사교적이지만 많은 사람들에게 관심을 받고 있어 쉽게 번호를 주지 않습니다.",
+        "max_turns": 4,
+        "win_condition": "상대방과 번호를 교환한다",
+        "lose_condition": "턴 제한을 초과하거나 상대방이 관심을 잃는다",
+        "difficulty": "쉬움"
+    }
+]
+PROMPTS = {
+    "system_prompt_template": "당신은 '상황 대처 게임'의 AI입니다.\n카테고리: {category}\n상황: {title}\n\n당신은 다음 상황에서 아래와 같은 캐릭터로 역할을 해야 합니다.\n{character_setting}\n\n규칙:\n1. 당신은 정해진 캐릭터로서 대화를 이어가야 합니다.\n2. 턴제 게임으로, 플레이어는 {max_turns}턴 안에 승리 조건을 달성해야 합니다.\n3. 현재 턴: {current_turn}/{max_turns}\n4. 승리 조건: {win_condition}\n5. 패배 조건: {lose_condition}\n6. 난이도: {difficulty}\n\n승리 조건이 충족되면 축하 메시지와 함께 게임이 종료됩니다.\n패배 조건이 충족되거나 턴을 모두 소진하면 게임이 종료됩니다.\n항상 현재 역할에 맞게 응답하세요.",
+    "welcome_message": "안녕하세요! '{title}' 상황에 오신 것을 환영합니다. 이 상황에서 여러분은 {max_turns}턴 안에 '{win_condition}'을(를) 달성해야 합니다. 대화를 통해 목표를 이루어보세요!",
+    "ai_config": {
+        "model": "gpt-3.5-turbo",
+        "max_tokens": 150,
+        "temperature": 0.7
+    }
+}
 GAME_LOGS = {}
 
 # 관리자 인증 정보
@@ -801,48 +815,17 @@ def home():
 def health_check():
     """API 서버 상태 확인"""
     try:
-        # 서버 상태 정보 수집
-        status_info = {
+        return jsonify({
             "status": "online",
             "message": "API 서버가 정상 작동 중입니다.",
-            "timestamp": int(time.time()),
-            "environment": "Vercel" if os.environ.get('VERCEL') else "Local",
-            "debug_info": {
-                "python_version": sys.version,
-                "working_directory": os.getcwd(),
-                "openai_available": bool(openai.api_key),
-                "games_loaded": len(GAMES),
-                "tmp_dir_exists": os.path.exists("/tmp"),
-                "data_dir_exists": os.path.exists("data")
-            }
-        }
-        
-        # 파일 시스템 테스트
-        if os.environ.get('VERCEL'):
-            try:
-                test_file = "/tmp/health_test.txt"
-                with open(test_file, "w") as f:
-                    f.write("Health check test")
-                with open(test_file, "r") as f:
-                    content = f.read()
-                os.remove(test_file)
-                status_info["debug_info"]["filesystem_test"] = "success"
-                status_info["debug_info"]["filesystem_content"] = content
-            except Exception as fs_error:
-                status_info["debug_info"]["filesystem_test"] = "failed"
-                status_info["debug_info"]["filesystem_error"] = str(fs_error)
-        
-        return jsonify(status_info)
+            "timestamp": int(time.time())
+        })
     except Exception as e:
         logger.error(f"Health 체크 에러: {str(e)}")
-        import traceback
-        tb = traceback.format_exc()
-        logger.error(f"상세 에러: {tb}")
         return jsonify({
             "status": "error",
             "message": "API 서버 상태 확인 중 오류가 발생했습니다.",
             "error": str(e),
-            "traceback": tb,
             "timestamp": int(time.time())
         }), 500
 
