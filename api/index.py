@@ -1,11 +1,12 @@
 """
-AI 추측 게임 API 서버 - 기본 버전
+AI 추측 게임 API 서버 - OpenAI 통합 버전
 """
 import os
 import json
 import logging
 import time
 import random
+import openai
 from flask import Flask, request, jsonify
 
 # 로깅 설정
@@ -14,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 # Flask 앱 초기화
 app = Flask(__name__)
+
+# OpenAI API 설정
+openai.api_key = os.environ.get('OPENAI_API_KEY', '')
 
 # 게임 세션 데이터 저장소
 GAME_SESSIONS = {}
@@ -25,7 +29,7 @@ GAMES = [
         "title": "플러팅 고수! 전화번호 따기",
         "category": "플러팅",
         "character_name": "윤지혜",
-        "character_setting": "당신은 카페에서 우연히 마주친 매력적인 사람입니다.",
+        "character_setting": "당신은 카페에서 우연히 마주친 매력적인 사람입니다. 친절하지만 쉽게 개인정보를 알려주지 않는 성격입니다.",
         "max_turns": 5,
         "win_condition": "상대방의 전화번호를 얻어낸다"
     },
@@ -34,7 +38,7 @@ GAMES = [
         "title": "파티에서 번호 교환하기",
         "category": "플러팅",
         "character_name": "김민준",
-        "character_setting": "당신은 친구의 파티에서 만난 사람입니다.",
+        "character_setting": "당신은 친구의 파티에서 만난 사람입니다. 사교적이지만 많은 사람들에게 관심을 받고 있어 쉽게 번호를 주지 않습니다.",
         "max_turns": 4,
         "win_condition": "상대방과 번호를 교환한다"
     },
@@ -43,11 +47,33 @@ GAMES = [
         "title": "꿈의 직장 면접 성공하기",
         "category": "면접",
         "character_name": "박상현",
-        "character_setting": "당신은 대기업 면접관입니다.",
+        "character_setting": "당신은 대기업 면접관입니다. 기술적 지식과 문화적 적합성을 모두 평가하고 있습니다. 인재를 뽑고 싶지만 까다로운 기준이 있습니다.",
         "max_turns": 10,
         "win_condition": "면접관을 설득해 일자리 제안을 받는다"
     }
 ]
+
+# OpenAI API 호출 함수
+def generate_ai_response(messages, max_tokens=300):
+    """
+    OpenAI API를 사용하여 AI 응답 생성
+    """
+    try:
+        if not openai.api_key:
+            logger.warning("OpenAI API 키가 설정되지 않았습니다.")
+            return None
+        
+        response = openai.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=0.7
+        )
+        
+        return response.choices[0].message.content
+    except Exception as e:
+        logger.error(f"OpenAI API 호출 중 오류 발생: {str(e)}")
+        return None
 
 # CORS 처리 함수
 @app.after_request
@@ -92,7 +118,8 @@ def debug_info():
         debug_data = {
             "active_game_sessions": len(GAME_SESSIONS),
             "games_available": len(GAMES),
-            "server_time": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
+            "server_time": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()),
+            "openai_available": bool(openai.api_key)
         }
         return jsonify({
             "success": True,
@@ -151,6 +178,19 @@ def start_game():
         # 게임 ID 생성
         game_id = f"game_{random.randint(10000, 99999)}"
         
+        # 시스템 메시지 생성
+        system_message = f"""
+당신은 '{target_game.get('title')}' 게임의 '{target_game.get('character_name')}' 역할을 수행합니다.
+캐릭터 설정: {target_game.get('character_setting')}
+게임 카테고리: {target_game.get('category')}
+승리 조건: {target_game.get('win_condition')}
+최대 턴: {target_game.get('max_turns')}
+
+대화를 진행하며 캐릭터 설정에 충실하게 응답해주세요.
+사용자가 승리 조건을 달성하면 승리 메시지를 제공하세요.
+한국어로만 응답하세요.
+"""
+        
         # 게임 정보 생성
         game_info = {
             "game_id": game_id,
@@ -176,7 +216,7 @@ def start_game():
             'current_turn': 1,
             'completed': False,
             'victory': False,
-            'conversation': []
+            'conversation': [{"role": "system", "content": system_message}]
         }
         
         return jsonify(game_info)
@@ -252,27 +292,51 @@ def ask_question():
         
         # 대화 기록 업데이트
         if 'conversation' not in game_session:
-            game_session['conversation'] = []
+            # 시스템 메시지가 없는 경우 기본 시스템 메시지 생성
+            system_message = f"""
+당신은 '{game_session.get('title')}' 게임의 '{character_name}' 역할을 수행합니다.
+캐릭터 설정: {game_session.get('character_setting')}
+게임 카테고리: {category}
+최대 턴: {max_turns}
+
+대화를 진행하며 캐릭터 설정에 충실하게 응답해주세요.
+한국어로만 응답하세요.
+"""
+            game_session['conversation'] = [{"role": "system", "content": system_message}]
         
+        # 유저 메시지 추가
         game_session['conversation'].append({"role": "user", "content": message})
         
-        # 카테고리별 응답 생성
-        if category == '플러팅':
-            if "전화" in message.lower() or "번호" in message.lower() or "연락처" in message.lower() or "만날래" in message.lower():
-                ai_response = f"네! 제 전화번호는 010-1234-5678입니다. 언제든지 연락주세요! 만나면 좋을 것 같아요."
-                game_session['victory'] = True
-                game_session['completed'] = True
+        # OpenAI API 호출하여 응답 생성
+        ai_response = generate_ai_response(game_session['conversation'])
+        
+        # API 응답이 없을 경우 기본 응답으로 대체
+        if ai_response is None:
+            # 카테고리별 응답 생성
+            if category == '플러팅':
+                if "전화" in message.lower() or "번호" in message.lower() or "연락처" in message.lower() or "만날래" in message.lower():
+                    ai_response = f"네! 제 전화번호는 010-1234-5678입니다. 언제든지 연락주세요! 만나면 좋을 것 같아요."
+                    game_session['victory'] = True
+                    game_session['completed'] = True
+                else:
+                    ai_response = f"흠, 재미있는 대화네요. 더 알고 싶은 것이 있으신가요?"
+            elif category == '면접':
+                if "연봉" in message.lower() and ("합격" in message.lower() or "채용" in message.lower()):
+                    ai_response = "축하합니다! 귀하의 역량이 우리 회사와 잘 맞는다고 생각합니다. 정식 채용 제안을 보내드리겠습니다."
+                    game_session['victory'] = True
+                    game_session['completed'] = True
+                else:
+                    ai_response = "좋은 질문입니다. 다른 궁금한 점이 있으신가요?"
             else:
-                ai_response = f"흠, 재미있는 대화네요. 더 알고 싶은 것이 있으신가요?"
-        elif category == '면접':
-            if "연봉" in message.lower() and ("합격" in message.lower() or "채용" in message.lower()):
-                ai_response = "축하합니다! 귀하의 역량이 우리 회사와 잘 맞는다고 생각합니다. 정식 채용 제안을 보내드리겠습니다."
-                game_session['victory'] = True
-                game_session['completed'] = True
-            else:
-                ai_response = "좋은 질문입니다. 다른 궁금한 점이 있으신가요?"
-        else:
-            ai_response = f"네, 이해했습니다. 더 궁금한 점이 있으신가요?"
+                ai_response = f"네, 이해했습니다. 더 궁금한 점이 있으신가요?"
+        
+        # 승리 조건 확인
+        if category == '플러팅' and ("010" in ai_response or "전화번호" in ai_response):
+            game_session['victory'] = True
+            game_session['completed'] = True
+        elif category == '면접' and ("채용" in ai_response and "제안" in ai_response):
+            game_session['victory'] = True
+            game_session['completed'] = True
         
         # 대화 기록에 AI 응답 추가
         game_session['conversation'].append({"role": "assistant", "content": ai_response})
