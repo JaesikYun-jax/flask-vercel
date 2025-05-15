@@ -29,6 +29,7 @@
   ],
   "env": {
     "PYTHONUNBUFFERED": "1",
-    "DEBUG": "False"
+    "DEBUG": "True",
+    "VERCEL": "1"
   }
 } 
