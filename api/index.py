@@ -8,7 +8,7 @@ import platform
 import sys
 import random
 from flask import Flask, request, jsonify
-from .utils import load_game_items, create_openai_client
+from .utils import create_openai_client
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -19,6 +19,70 @@ app = Flask(__name__)
 
 # 게임 세션 데이터 저장을 위한 임시 저장소 (실제 구현에서는 데이터베이스 사용 권장)
 GAME_SESSIONS = {}
+
+# 기본 게임 항목
+DEFAULT_GAME_ITEMS = [
+    {
+        "id": 1,
+        "title": "플러팅 고수! 전화번호 따기",
+        "category": "플러팅",
+        "character_name": "윤지혜",
+        "character_setting": "당신은 카페에서 우연히 마주친 매력적인 사람과 대화를 시작했습니다. 그들은 친절하지만 쉽게 개인정보를 알려주지 않는 성격입니다.",
+        "max_turns": 5,
+        "win_condition": "상대방의 전화번호를 얻어낸다",
+        "lose_condition": "턴 제한을 초과하거나 상대방이 대화를 거부한다"
+    },
+    {
+        "id": 2,
+        "title": "파티에서 번호 교환하기",
+        "category": "플러팅",
+        "character_name": "김민준",
+        "character_setting": "당신은 친구의 파티에서 공통 관심사를 가진 사람을 만났습니다. 그들은 사교적이지만 많은 사람들에게 관심을 받고 있습니다.",
+        "max_turns": 4,
+        "win_condition": "상대방과 번호를 교환하고 다음 만남 약속을 잡는다",
+        "lose_condition": "턴 제한을 초과하거나 상대방이 관심을 잃는다"
+    },
+    {
+        "id": 3,
+        "title": "꿈의 직장 면접 성공하기",
+        "category": "면접",
+        "character_name": "박상현",
+        "character_setting": "당신은 꿈의 회사에서 최종 면접 단계에 진출했습니다. 면접관은 기술적 지식과 문화적 적합성을 모두 평가하고 있습니다.",
+        "max_turns": 10,
+        "win_condition": "면접관을 설득해 일자리 제안을 받는다",
+        "lose_condition": "자신의 경력이나 능력에 대해 일관성 없는 대답을 한다"
+    },
+    {
+        "id": 4,
+        "title": "연봉 협상 마스터",
+        "category": "면접",
+        "character_name": "이지연",
+        "character_setting": "당신은 직무 면접을 통과했고 이제 연봉 협상 단계입니다. 회사는 당신을 원하지만 예산 제약이 있습니다.",
+        "max_turns": 5,
+        "win_condition": "초기 제안보다 20% 이상 높은 연봉을 협상한다",
+        "lose_condition": "지나치게 공격적으로 요구하여 제안이 철회된다"
+    },
+    {
+        "id": 5,
+        "title": "중고차 판매의 달인",
+        "category": "물건판매",
+        "character_name": "강태식",
+        "character_setting": "당신은 중고차 딜러입니다. 약간의 문제가 있지만 전반적으로 상태가 좋은 중고차를 판매하려고 합니다. 강태식씨는 까다롭고 차에 대해 많은 질문을 하는 잠재 구매자입니다.",
+        "max_turns": 6,
+        "win_condition": "차량을 희망가보다 10% 이상 높은 가격에 판매한다",
+        "lose_condition": "구매자가 거래를 거부하고 떠난다"
+    },
+    {
+        "id": 6,
+        "title": "한정판 제품 프리미엄 판매",
+        "category": "물건판매",
+        "character_name": "조현우",
+        "character_setting": "당신은 구하기 어려운 한정판 제품을 가지고 있으며, 온라인 마켓플레이스에서 판매하려고 합니다. 구매자는 제품에 관심이 있지만 가격을 흥정하려고 합니다.",
+        "max_turns": 4,
+        "win_condition": "정가의 두 배 이상으로 제품을 판매한다",
+        "lose_condition": "구매자가 사기를 의심하고 신고한다"
+    }
+]
 
 # CORS 처리 함수
 @app.after_request
@@ -58,8 +122,8 @@ def health_check():
 def list_games():
     """게임 목록 반환"""
     try:
-        # utils.py의 load_game_items 함수 사용
-        game_items = load_game_items()
+        # 기본 게임 아이템 직접 반환
+        game_items = DEFAULT_GAME_ITEMS
         logger.info(f"게임 목록 로드 성공: {len(game_items)}개 항목")
         return jsonify({
             "success": True,
@@ -113,7 +177,7 @@ def start_game():
         selected_item_id = data.get('item_id')
         
         # 게임 항목 로드
-        all_items = load_game_items()
+        all_items = DEFAULT_GAME_ITEMS
         logger.info(f"게임 항목 로드: {len(all_items)}개 항목")
         
         # 아이템 선택
