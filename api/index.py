@@ -22,36 +22,592 @@ openai.api_key = os.environ.get('OPENAI_API_KEY', '')
 # 게임 세션 데이터 저장소
 GAME_SESSIONS = {}
 
-# 기본 게임 항목
-GAMES = [
-    {
-        "id": 1,
-        "title": "플러팅 고수! 전화번호 따기",
-        "category": "플러팅",
-        "character_name": "윤지혜",
-        "character_setting": "당신은 카페에서 우연히 마주친 매력적인 사람입니다. 친절하지만 쉽게 개인정보를 알려주지 않는 성격입니다.",
-        "max_turns": 5,
-        "win_condition": "상대방의 전화번호를 얻어낸다"
-    },
-    {
-        "id": 2,
-        "title": "파티에서 번호 교환하기",
-        "category": "플러팅",
-        "character_name": "김민준",
-        "character_setting": "당신은 친구의 파티에서 만난 사람입니다. 사교적이지만 많은 사람들에게 관심을 받고 있어 쉽게 번호를 주지 않습니다.",
-        "max_turns": 4,
-        "win_condition": "상대방과 번호를 교환한다"
-    },
-    {
-        "id": 3,
-        "title": "꿈의 직장 면접 성공하기",
-        "category": "면접",
-        "character_name": "박상현",
-        "character_setting": "당신은 대기업 면접관입니다. 기술적 지식과 문화적 적합성을 모두 평가하고 있습니다. 인재를 뽑고 싶지만 까다로운 기준이 있습니다.",
-        "max_turns": 10,
-        "win_condition": "면접관을 설득해 일자리 제안을 받는다"
-    }
-]
+# 데이터 파일 경로
+ITEMS_DATA_FILE = "data/game_items.json"
+PROMPTS_DATA_FILE = "data/game_prompts.json"
+GAME_LOGS_FILE = "data/game_logs.json"
+
+# 초기 빈 항목 리스트 선언
+GAMES = []
+PROMPTS = {}
+GAME_LOGS = {}
+
+# 관리자 인증 정보
+ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin1234')
+ADMIN_SESSION_KEY = "admin_authenticated"
+
+# 관리자 인증 필요 데코레이터
+def admin_required(f):
+    """관리자 인증 확인 데코레이터"""
+    def decorated_function(*args, **kwargs):
+        # Authorization 헤더 확인
+        auth_header = request.headers.get('Authorization')
+        if auth_header and auth_header.startswith('Basic '):
+            import base64
+            # Basic Authentication 디코딩
+            credentials = base64.b64decode(auth_header[6:]).decode('utf-8')
+            username, password = credentials.split(':')
+            if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
+                return f(*args, **kwargs)
+        
+        return jsonify({
+            "success": False,
+            "error": "관리자 인증이 필요합니다."
+        }), 401
+    
+    return decorated_function
+
+# 관리자 로그인 API
+@app.route('/api/admin/login', methods=['POST'])
+def admin_login():
+    """관리자 로그인 처리"""
+    try:
+        data = request.get_json(silent=True) or {}
+        
+        username = data.get('username')
+        password = data.get('password')
+        
+        if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
+            return jsonify({
+                "success": True,
+                "message": "관리자 로그인 성공"
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "error": "아이디 또는 비밀번호가 일치하지 않습니다."
+            }), 401
+    except Exception as e:
+        logger.error(f"관리자 로그인 에러: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+# 관리자 로그아웃 API
+@app.route('/api/admin/logout', methods=['POST'])
+def admin_logout():
+    """관리자 로그아웃 처리"""
+    return jsonify({
+        "success": True,
+        "message": "로그아웃 되었습니다."
+    })
+
+# 게임 항목 관리 API (관리자 전용)
+@app.route('/api/admin/items', methods=['GET'])
+@admin_required
+def get_items():
+    """모든 게임 항목 조회"""
+    try:
+        return jsonify({
+            "success": True,
+            "data": GAMES
+        })
+    except Exception as e:
+        logger.error(f"게임 항목 조회 에러: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+# 게임 항목 추가 API (관리자 전용)
+@app.route('/api/admin/items', methods=['POST'])
+@admin_required
+def add_item():
+    """새 게임 항목 추가"""
+    try:
+        data = request.get_json(silent=True) or {}
+        
+        # 필수 필드 확인
+        required_fields = ['title', 'category', 'character_name', 'max_turns', 'win_condition']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({
+                    "success": False,
+                    "error": f"'{field}' 필드는 필수입니다."
+                }), 400
+        
+        # 새 항목 ID 생성
+        new_id = 1
+        if GAMES:
+            new_id = max([game.get('id', 0) for game in GAMES]) + 1
+        
+        # 새 항목 생성
+        new_item = {
+            "id": new_id,
+            "title": data.get('title'),
+            "category": data.get('category'),
+            "character_name": data.get('character_name'),
+            "character_setting": data.get('character_setting', ''),
+            "max_turns": data.get('max_turns', 5),
+            "win_condition": data.get('win_condition'),
+            "lose_condition": data.get('lose_condition', '턴 제한을 초과하면 패배합니다.'),
+            "difficulty": data.get('difficulty', '보통')
+        }
+        
+        # 항목 추가
+        GAMES.append(new_item)
+        
+        # 변경사항 저장
+        save_items()
+        
+        return jsonify({
+            "success": True,
+            "data": new_item,
+            "message": "새 게임 항목이 추가되었습니다."
+        })
+    except Exception as e:
+        logger.error(f"게임 항목 추가 에러: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+# 게임 항목 수정 API (관리자 전용)
+@app.route('/api/admin/items/<int:item_id>', methods=['PUT'])
+@admin_required
+def update_item(item_id):
+    """게임 항목 수정"""
+    try:
+        data = request.get_json(silent=True) or {}
+        
+        # 항목 찾기
+        item_index = -1
+        for i, item in enumerate(GAMES):
+            if item.get('id') == item_id:
+                item_index = i
+                break
+        
+        if item_index == -1:
+            return jsonify({
+                "success": False,
+                "error": f"ID {item_id}인 게임 항목을 찾을 수 없습니다."
+            }), 404
+        
+        # 항목 업데이트
+        for key, value in data.items():
+            if key != 'id':  # ID는 변경할 수 없음
+                GAMES[item_index][key] = value
+        
+        # 변경사항 저장
+        save_items()
+        
+        return jsonify({
+            "success": True,
+            "data": GAMES[item_index],
+            "message": "게임 항목이 업데이트되었습니다."
+        })
+    except Exception as e:
+        logger.error(f"게임 항목 수정 에러: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+# 게임 항목 삭제 API (관리자 전용)
+@app.route('/api/admin/items/<int:item_id>', methods=['DELETE'])
+@admin_required
+def delete_item(item_id):
+    """게임 항목 삭제"""
+    try:
+        # 항목 찾기
+        item_index = -1
+        for i, item in enumerate(GAMES):
+            if item.get('id') == item_id:
+                item_index = i
+                break
+        
+        if item_index == -1:
+            return jsonify({
+                "success": False,
+                "error": f"ID {item_id}인 게임 항목을 찾을 수 없습니다."
+            }), 404
+        
+        # 항목 삭제
+        deleted_item = GAMES.pop(item_index)
+        
+        # 변경사항 저장
+        save_items()
+        
+        return jsonify({
+            "success": True,
+            "data": deleted_item,
+            "message": "게임 항목이 삭제되었습니다."
+        })
+    except Exception as e:
+        logger.error(f"게임 항목 삭제 에러: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+# 아이템별 프롬프트 조회 API (관리자 전용)
+@app.route('/api/admin/items/<int:item_id>/prompt', methods=['GET'])
+@admin_required
+def get_item_prompt(item_id):
+    """아이템별 프롬프트 조회"""
+    try:
+        # 항목 찾기
+        item = None
+        for game in GAMES:
+            if game.get('id') == item_id:
+                item = game
+                break
+        
+        if not item:
+            return jsonify({
+                "success": False,
+                "error": f"ID {item_id}인 게임 항목을 찾을 수 없습니다."
+            }), 404
+        
+        # 아이템별 프롬프트 가져오기
+        prompt_data = load_item_prompt(item_id)
+        
+        if not prompt_data:
+            # 기본 프롬프트 구성
+            prompt_data = {
+                "system_prompt": PROMPTS.get('system_prompt_template', '').format(
+                    title=item.get('title', '알 수 없는 게임'),
+                    category=item.get('category', '기타'),
+                    character_setting=item.get('character_setting', ''),
+                    max_turns=item.get('max_turns', 5),
+                    current_turn=1,
+                    win_condition=item.get('win_condition', ''),
+                    lose_condition=item.get('lose_condition', ''),
+                    difficulty=item.get('difficulty', '보통')
+                ),
+                "welcome_message": PROMPTS.get('welcome_message', '').format(
+                    title=item.get('title', '알 수 없는 게임'),
+                    max_turns=item.get('max_turns', 5),
+                    win_condition=item.get('win_condition', '')
+                ),
+                "ai_config": PROMPTS.get('ai_config', {})
+            }
+        
+        return jsonify({
+            "success": True,
+            "data": prompt_data
+        })
+    except Exception as e:
+        logger.error(f"아이템 프롬프트 조회 에러: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+# 아이템별 프롬프트 업데이트 API (관리자 전용)
+@app.route('/api/admin/items/<int:item_id>/prompt', methods=['POST'])
+@admin_required
+def update_item_prompt(item_id):
+    """아이템별 프롬프트 업데이트"""
+    try:
+        data = request.get_json(silent=True) or {}
+        
+        # 항목 찾기
+        item = None
+        for game in GAMES:
+            if game.get('id') == item_id:
+                item = game
+                break
+        
+        if not item:
+            return jsonify({
+                "success": False,
+                "error": f"ID {item_id}인 게임 항목을 찾을 수 없습니다."
+            }), 404
+        
+        # 프롬프트 파일 경로
+        prompt_file = os.path.join('item_prompts', f"{item_id}.json")
+        
+        # 프롬프트 파일 저장
+        with open(prompt_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        
+        return jsonify({
+            "success": True,
+            "message": "아이템 프롬프트가 업데이트되었습니다."
+        })
+    except Exception as e:
+        logger.error(f"아이템 프롬프트 업데이트 에러: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+# 글로벌 프롬프트 설정 가져오기 API (관리자 전용)
+@app.route('/api/admin/prompts', methods=['GET'])
+@admin_required
+def get_prompts():
+    """글로벌 프롬프트 설정 가져오기"""
+    try:
+        return jsonify({
+            "success": True,
+            "data": PROMPTS
+        })
+    except Exception as e:
+        logger.error(f"프롬프트 설정 조회 에러: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+# 글로벌 프롬프트 설정 업데이트 API (관리자 전용)
+@app.route('/api/admin/prompts', methods=['PUT'])
+@admin_required
+def update_prompts():
+    """글로벌 프롬프트 설정 업데이트"""
+    try:
+        data = request.get_json(silent=True) or {}
+        
+        # 필수 필드 확인
+        required_fields = ['system_prompt_template', 'welcome_message', 'ai_config']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({
+                    "success": False,
+                    "error": f"'{field}' 필드는 필수입니다."
+                }), 400
+        
+        # 프롬프트 설정 업데이트
+        for key, value in data.items():
+            PROMPTS[key] = value
+        
+        # 변경사항 저장
+        save_prompts()
+        
+        return jsonify({
+            "success": True,
+            "message": "프롬프트 설정이 업데이트되었습니다."
+        })
+    except Exception as e:
+        logger.error(f"프롬프트 설정 업데이트 에러: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+# 게임 세션 조회 API (관리자 전용)
+@app.route('/api/admin/games', methods=['GET'])
+@admin_required
+def get_games():
+    """게임 세션 조회"""
+    try:
+        return jsonify({
+            "success": True,
+            "data": GAME_SESSIONS
+        })
+    except Exception as e:
+        logger.error(f"게임 세션 조회 에러: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+# 통계 정보 API (관리자 전용)
+@app.route('/api/admin/stats', methods=['GET'])
+@admin_required
+def get_stats():
+    """통계 정보 가져오기"""
+    try:
+        # 통계 정보 수집
+        stats = {
+            "app_info": {
+                "version": "1.0.0",
+                "server_time": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()),
+                "uptime": "N/A"  # 서버리스 환경에서는 제공 불가
+            },
+            "handler_state": {
+                "active_game_sessions": len(GAME_SESSIONS),
+                "games_available": len(GAMES),
+                "total_game_logs": len(GAME_LOGS),
+                "openai_available": bool(openai.api_key)
+            },
+            "categories": {}
+        }
+        
+        # 카테고리별 통계
+        categories = {}
+        for game in GAMES:
+            category = game.get('category', '기타')
+            if category not in categories:
+                categories[category] = 0
+            categories[category] += 1
+        
+        stats["categories"] = categories
+        
+        return jsonify({
+            "success": True,
+            "data": stats
+        })
+    except Exception as e:
+        logger.error(f"통계 조회 에러: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+# 항목 데이터 저장 및 불러오기 함수
+def save_items():
+    """게임 항목 데이터를 파일에 저장"""
+    try:
+        with open(ITEMS_DATA_FILE, 'w', encoding='utf-8') as f:
+            json.dump(GAMES, f, ensure_ascii=False, indent=2)
+        logger.info(f"게임 항목 {len(GAMES)}개가 '{ITEMS_DATA_FILE}'에 저장되었습니다.")
+        return True
+    except Exception as e:
+        logger.error(f"게임 항목 저장 중 오류: {str(e)}")
+        return False
+
+def load_items():
+    """파일에서 게임 항목 데이터 불러오기"""
+    global GAMES
+    try:
+        if os.path.exists(ITEMS_DATA_FILE):
+            with open(ITEMS_DATA_FILE, 'r', encoding='utf-8') as f:
+                GAMES = json.load(f)
+            logger.info(f"게임 항목 {len(GAMES)}개가 '{ITEMS_DATA_FILE}'에서 로드되었습니다.")
+        else:
+            # 기본 항목 데이터 (원래 하드코딩되어 있던 데이터)
+            GAMES = [
+                {
+                    "id": 1,
+                    "title": "플러팅 고수! 전화번호 따기",
+                    "category": "플러팅",
+                    "character_name": "윤지혜",
+                    "character_setting": "당신은 카페에서 우연히 마주친 매력적인 사람입니다. 친절하지만 쉽게 개인정보를 알려주지 않는 성격입니다.",
+                    "max_turns": 5,
+                    "win_condition": "상대방의 전화번호를 얻어낸다",
+                    "lose_condition": "턴 제한을 초과하거나 상대방이 대화를 거부한다",
+                    "difficulty": "보통"
+                },
+                {
+                    "id": 2,
+                    "title": "파티에서 번호 교환하기",
+                    "category": "플러팅",
+                    "character_name": "김민준",
+                    "character_setting": "당신은 친구의 파티에서 만난 사람입니다. 사교적이지만 많은 사람들에게 관심을 받고 있어 쉽게 번호를 주지 않습니다.",
+                    "max_turns": 4,
+                    "win_condition": "상대방과 번호를 교환한다",
+                    "lose_condition": "턴 제한을 초과하거나 상대방이 관심을 잃는다",
+                    "difficulty": "쉬움"
+                },
+                {
+                    "id": 3,
+                    "title": "꿈의 직장 면접 성공하기",
+                    "category": "면접",
+                    "character_name": "박상현",
+                    "character_setting": "당신은 대기업 면접관입니다. 기술적 지식과 문화적 적합성을 모두 평가하고 있습니다. 인재를 뽑고 싶지만 까다로운 기준이 있습니다.",
+                    "max_turns": 10,
+                    "win_condition": "면접관을 설득해 일자리 제안을 받는다",
+                    "lose_condition": "자신의 경력이나 능력에 대해 일관성 없는 대답을 한다",
+                    "difficulty": "어려움"
+                }
+            ]
+            logger.info(f"기본 게임 항목 {len(GAMES)}개가 로드되었습니다.")
+            save_items()  # 기본 항목 저장
+        return True
+    except Exception as e:
+        logger.error(f"게임 항목 로드 중 오류: {str(e)}")
+        # 기본 항목으로 초기화
+        GAMES = []
+        return False
+
+# 프롬프트 데이터 저장 및 불러오기 함수
+def save_prompts():
+    """게임 프롬프트 데이터를 파일에 저장"""
+    try:
+        with open(PROMPTS_DATA_FILE, 'w', encoding='utf-8') as f:
+            json.dump(PROMPTS, f, ensure_ascii=False, indent=2)
+        logger.info(f"게임 프롬프트가 '{PROMPTS_DATA_FILE}'에 저장되었습니다.")
+        return True
+    except Exception as e:
+        logger.error(f"게임 프롬프트 저장 중 오류: {str(e)}")
+        return False
+
+def load_prompts():
+    """파일에서 게임 프롬프트 데이터 불러오기"""
+    global PROMPTS
+    try:
+        if os.path.exists(PROMPTS_DATA_FILE):
+            with open(PROMPTS_DATA_FILE, 'r', encoding='utf-8') as f:
+                PROMPTS = json.load(f)
+            logger.info(f"게임 프롬프트가 '{PROMPTS_DATA_FILE}'에서 로드되었습니다.")
+        else:
+            # 기본 프롬프트 데이터
+            PROMPTS = {
+                "system_prompt_template": "당신은 '상황 대처 게임'의 AI입니다.\n카테고리: {category}\n상황: {title}\n\n당신은 다음 상황에서 아래와 같은 캐릭터로 역할을 해야 합니다.\n{character_setting}\n\n규칙:\n1. 당신은 정해진 캐릭터로서 대화를 이어가야 합니다.\n2. 턴제 게임으로, 플레이어는 {max_turns}턴 안에 승리 조건을 달성해야 합니다.\n3. 현재 턴: {current_turn}/{max_turns}\n4. 승리 조건: {win_condition}\n5. 패배 조건: {lose_condition}\n6. 난이도: {difficulty}\n\n승리 조건이 충족되면 축하 메시지와 함께 게임이 종료됩니다.\n패배 조건이 충족되거나 턴을 모두 소진하면 게임이 종료됩니다.\n항상 현재 역할에 맞게 응답하세요.",
+                "welcome_message": "안녕하세요! '{title}' 상황에 오신 것을 환영합니다. 이 상황에서 여러분은 {max_turns}턴 안에 '{win_condition}'을(를) 달성해야 합니다. 대화를 통해 목표를 이루어보세요!",
+                "correct_answer_message": "축하합니다! '{win_condition}'에 성공하셨습니다!",
+                "wrong_answer_message": "아쉽게도 목표를 달성하지 못했습니다. 다음에 다시 도전해보세요.",
+                "game_end_message": "게임이 종료되었습니다. 플레이해주셔서 감사합니다.",
+                "error_messages": {
+                    "game_not_found": "유효하지 않은 게임 ID입니다.",
+                    "game_already_completed": "게임이 이미 종료되었습니다. 새 게임을 시작하세요.",
+                    "invalid_input": "메시지가 없습니다.",
+                    "server_error": "서버 오류가 발생했습니다. 다시 시도해주세요."
+                },
+                "ai_config": {
+                    "model": "gpt-3.5-turbo",
+                    "max_tokens": 150,
+                    "temperature": 0.7
+                }
+            }
+            logger.info("기본 게임 프롬프트가 로드되었습니다.")
+            save_prompts()  # 기본 프롬프트 저장
+        return True
+    except Exception as e:
+        logger.error(f"게임 프롬프트 로드 중 오류: {str(e)}")
+        # 기본 프롬프트로 초기화
+        PROMPTS = {}
+        return False
+
+# 게임 로그 저장 및 불러오기 함수
+def save_game_logs():
+    """게임 로그를 파일에 저장"""
+    try:
+        with open(GAME_LOGS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(GAME_LOGS, f, ensure_ascii=False, indent=2)
+        logger.info(f"게임 로그 {len(GAME_LOGS)}개가 '{GAME_LOGS_FILE}'에 저장되었습니다.")
+        return True
+    except Exception as e:
+        logger.error(f"게임 로그 저장 중 오류: {str(e)}")
+        return False
+
+def load_game_logs():
+    """파일에서 게임 로그 불러오기"""
+    global GAME_LOGS
+    try:
+        if os.path.exists(GAME_LOGS_FILE):
+            with open(GAME_LOGS_FILE, 'r', encoding='utf-8') as f:
+                GAME_LOGS = json.load(f)
+            logger.info(f"게임 로그 {len(GAME_LOGS)}개가 '{GAME_LOGS_FILE}'에서 로드되었습니다.")
+        else:
+            GAME_LOGS = {}
+            logger.info("게임 로그 파일이 없어 빈 로그로 초기화합니다.")
+        return True
+    except Exception as e:
+        logger.error(f"게임 로그 로드 중 오류: {str(e)}")
+        GAME_LOGS = {}
+        return False
+
+# 아이템별 프롬프트 가져오기
+def load_item_prompt(item_id):
+    """특정 아이템의 프롬프트 설정 가져오기"""
+    try:
+        prompt_file = os.path.join('item_prompts', f"{item_id}.json")
+        if os.path.exists(prompt_file):
+            with open(prompt_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        return None
+    except Exception as e:
+        logger.error(f"아이템 {item_id} 프롬프트 로드 중 오류: {str(e)}")
+        return None
+
+# 데이터 로드
+load_items()
+load_prompts()
+load_game_logs()
 
 # OpenAI API 호출 함수
 def generate_ai_response(messages, max_tokens=300):
@@ -178,18 +734,47 @@ def start_game():
         # 게임 ID 생성
         game_id = f"game_{random.randint(10000, 99999)}"
         
+        # 아이템별 프롬프트 가져오기
+        item_prompt = load_item_prompt(target_game['id'])
+        
         # 시스템 메시지 생성
-        system_message = f"""
-당신은 '{target_game.get('title')}' 게임의 '{target_game.get('character_name')}' 역할을 수행합니다.
-캐릭터 설정: {target_game.get('character_setting')}
-게임 카테고리: {target_game.get('category')}
-승리 조건: {target_game.get('win_condition')}
-최대 턴: {target_game.get('max_turns')}
-
-대화를 진행하며 캐릭터 설정에 충실하게 응답해주세요.
-사용자가 승리 조건을 달성하면 승리 메시지를 제공하세요.
-한국어로만 응답하세요.
-"""
+        if item_prompt and 'system_prompt' in item_prompt:
+            system_message = item_prompt['system_prompt']
+        else:
+            # 기본 시스템 프롬프트 템플릿 사용
+            system_prompt_template = PROMPTS.get('system_prompt_template', '')
+            
+            # 템플릿 형식화
+            system_message = system_prompt_template.format(
+                title=target_game.get('title', '알 수 없는 게임'),
+                category=target_game.get('category', '기타'),
+                character_setting=target_game.get('character_setting', ''),
+                max_turns=target_game.get('max_turns', 5),
+                current_turn=1,
+                win_condition=target_game.get('win_condition', ''),
+                lose_condition=target_game.get('lose_condition', ''),
+                difficulty=target_game.get('difficulty', '보통')
+            )
+        
+        # 환영 메시지 생성
+        welcome_message_key = f"welcome_message_{target_game.get('category', '').lower()}"
+        if welcome_message_key in PROMPTS:
+            welcome_message_template = PROMPTS[welcome_message_key]
+        else:
+            welcome_message_template = PROMPTS.get('welcome_message', '안녕하세요! 게임을 시작합니다.')
+        
+        welcome_message = welcome_message_template.format(
+            title=target_game.get('title', '알 수 없는 게임'),
+            max_turns=target_game.get('max_turns', 5),
+            win_condition=target_game.get('win_condition', '')
+        )
+        
+        # AI 설정 가져오기
+        ai_config = PROMPTS.get('ai_config', {})
+        if item_prompt and 'ai_config' in item_prompt:
+            # 아이템별 AI 설정이 있으면 우선 적용
+            for key, value in item_prompt['ai_config'].items():
+                ai_config[key] = value
         
         # 게임 정보 생성
         game_info = {
@@ -199,32 +784,59 @@ def start_game():
             "category": target_game.get('category', '기타'),
             "character_name": target_game.get('character_name', 'AI'),
             "character_setting": target_game.get('character_setting', ''),
-            "max_turns": target_game.get('max_turns', 10),
+            "max_turns": target_game.get('max_turns', 5),
             "current_turn": 1,
-            "welcome_message": f"안녕하세요! {target_game.get('character_name', 'AI')}입니다. 게임을 시작합니다."
+            "win_condition": target_game.get('win_condition', ''),
+            "lose_condition": target_game.get('lose_condition', ''),
+            "difficulty": target_game.get('difficulty', '보통'),
+            "completed": False,
+            "victory": False,
+            "messages": [
+                {"role": "system", "content": system_message}
+            ],
+            "creation_time": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()),
+            "welcome_message": welcome_message,
+            "ai_config": ai_config
         }
         
         # 게임 세션 저장
-        GAME_SESSIONS[game_id] = {
-            'game_id': game_id,
-            'id': target_game.get('id'),
-            'title': target_game.get('title'),
-            'category': target_game.get('category', '기타'),
-            'character_name': target_game.get('character_name', 'AI'),
-            'character_setting': target_game.get('character_setting', ''),
-            'max_turns': target_game.get('max_turns', 10),
-            'current_turn': 1,
-            'completed': False,
-            'victory': False,
-            'conversation': [{"role": "system", "content": system_message}]
+        GAME_SESSIONS[game_id] = game_info
+        
+        # 게임 로그에 추가
+        GAME_LOGS[game_id] = {
+            "game_id": game_id,
+            "target": target_game,
+            "creation_time": game_info["creation_time"],
+            "completed": False,
+            "victory": False,
+            "questions_asked": 0,
+            "conversation": []
+        }
+        save_game_logs()
+        
+        # 클라이언트에 반환할 정보
+        response_data = {
+            "game_id": game_id,
+            "title": target_game.get('title', '알 수 없는 게임'),
+            "category": target_game.get('category', '기타'),
+            "character_name": target_game.get('character_name', 'AI'),
+            "character_setting": target_game.get('character_setting', ''),
+            "max_turns": target_game.get('max_turns', 5),
+            "current_turn": 1,
+            "win_condition": target_game.get('win_condition', ''),
+            "welcome_message": welcome_message
         }
         
-        return jsonify(game_info)
+        return jsonify({
+            "success": True,
+            "data": response_data
+        })
+        
     except Exception as e:
         logger.error(f"게임 시작 에러: {str(e)}")
         return jsonify({
-            "error": str(e),
-            "message": "게임을 시작하는 중 오류가 발생했습니다."
+            "success": False,
+            "error": str(e)
         }), 500
 
 # 질문 API
