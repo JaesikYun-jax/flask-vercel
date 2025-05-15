@@ -6,6 +6,8 @@ import json
 import logging
 import time
 import random
+import sys
+import platform
 from flask import Flask, request, jsonify
 
 # 로깅 설정
@@ -25,6 +27,7 @@ GAMES = [
         "title": "플러팅 고수! 전화번호 따기",
         "category": "플러팅",
         "character_name": "윤지혜",
+        "character_setting": "당신은 카페에서 우연히 마주친 매력적인 사람입니다. 친절하지만 쉽게 개인정보를 알려주지 않는 성격입니다.",
         "max_turns": 5,
         "win_condition": "상대방의 전화번호를 얻어낸다"
     },
@@ -33,6 +36,7 @@ GAMES = [
         "title": "파티에서 번호 교환하기",
         "category": "플러팅",
         "character_name": "김민준",
+        "character_setting": "당신은 친구의 파티에서 만난 사람입니다. 사교적이지만 많은 사람들에게 관심을 받고 있어 쉽게 번호를 주지 않습니다.",
         "max_turns": 4,
         "win_condition": "상대방과 번호를 교환한다"
     },
@@ -41,6 +45,7 @@ GAMES = [
         "title": "꿈의 직장 면접 성공하기",
         "category": "면접",
         "character_name": "박상현",
+        "character_setting": "당신은 대기업 면접관입니다. 기술적 지식과 문화적 적합성을 모두 평가하고 있습니다. 인재를 뽑고 싶지만 까다로운 기준이 있습니다.",
         "max_turns": 10,
         "win_condition": "면접관을 설득해 일자리 제안을 받는다"
     }
@@ -80,6 +85,34 @@ def health_check():
         "message": "API 서버가 정상 작동 중입니다.",
         "timestamp": int(time.time())
     })
+
+# 디버그 정보 API
+@app.route('/api/debug')
+def debug_info():
+    """디버깅 정보 반환"""
+    try:
+        debug_data = {
+            "python_version": sys.version,
+            "platform": platform.platform(),
+            "environment": {k: v for k, v in os.environ.items() 
+                          if not k.startswith('AWS_') 
+                          and not 'SECRET' in k.upper() 
+                          and not 'KEY' in k.upper()},
+            "active_game_sessions": len(GAME_SESSIONS),
+            "games_available": len(GAMES),
+            "server_time": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()),
+            "vercel_deployment_id": os.environ.get('VERCEL_DEPLOYMENT_ID', 'local')
+        }
+        return jsonify({
+            "success": True,
+            "data": debug_data
+        })
+    except Exception as e:
+        logger.error(f"디버그 정보 생성 에러: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
 # 게임 목록 API
 @app.route('/api/games')
@@ -134,6 +167,7 @@ def start_game():
             "title": target_game.get('title', '알 수 없는 게임'),
             "category": target_game.get('category', '기타'),
             "character_name": target_game.get('character_name', 'AI'),
+            "character_setting": target_game.get('character_setting', ''),
             "max_turns": target_game.get('max_turns', 10),
             "current_turn": 1,
             "welcome_message": f"안녕하세요! {target_game.get('character_name', 'AI')}입니다. 게임을 시작합니다."
@@ -146,6 +180,7 @@ def start_game():
             'title': target_game.get('title'),
             'category': target_game.get('category', '기타'),
             'character_name': target_game.get('character_name', 'AI'),
+            'character_setting': target_game.get('character_setting', ''),
             'max_turns': target_game.get('max_turns', 10),
             'current_turn': 1,
             'completed': False,
@@ -186,6 +221,32 @@ def ask_question():
         current_turn = game_session.get('current_turn', 1)
         max_turns = game_session.get('max_turns', 5)
         character_name = game_session.get('character_name', 'AI')
+        category = game_session.get('category', '기타')
+        
+        # 치트키 확인
+        if message == '승승리':
+            game_session['victory'] = True
+            game_session['completed'] = True
+            
+            return jsonify({
+                'game_id': game_id,
+                'response': '축하합니다! 치트키를 사용하여 승리했습니다.',
+                'current_turn': current_turn,
+                'max_turns': max_turns,
+                'completed': True,
+                'victory': True
+            })
+        elif message == '패패배':
+            game_session['completed'] = True
+            
+            return jsonify({
+                'game_id': game_id,
+                'response': '치트키를 사용하여 패배했습니다.',
+                'current_turn': current_turn,
+                'max_turns': max_turns,
+                'completed': True,
+                'victory': False
+            })
         
         # 대화 기록 업데이트
         if 'conversation' not in game_session:
@@ -193,8 +254,49 @@ def ask_question():
         
         game_session['conversation'].append({"role": "user", "content": message})
         
-        # 간단한 응답 생성
-        ai_response = f"안녕하세요! 제 이름은 {character_name}입니다. 질문에 답변드립니다: {message}"
+        # 카테고리별 응답 생성
+        ai_response = ""
+        
+        if category == '플러팅':
+            if "전화" in message.lower() or "번호" in message.lower() or "연락처" in message.lower() or "만날래" in message.lower():
+                ai_response = f"네! 제 전화번호는 010-1234-5678입니다. 언제든지 연락주세요! 만나면 좋을 것 같아요."
+                game_session['victory'] = True
+                game_session['completed'] = True
+            elif "이름" in message.lower() or "누구" in message.lower():
+                ai_response = f"제 이름은 {character_name}입니다. 만나서 반가워요!"
+            elif "직업" in message.lower() or "일" in message.lower() or "뭐하" in message.lower():
+                ai_response = "저는 디자인 회사에서 UX 디자이너로 일하고 있어요. 사용자 경험 디자인에 관심이 많답니다."
+            elif "취미" in message.lower() or "관심" in message.lower():
+                ai_response = "저는 여행과 사진 찍기를 좋아해요. 요즘은 베이킹에도 관심이 생겼어요. 당신은 어떤 취미가 있나요?"
+            elif "나이" in message.lower() or "몇 살" in message.lower():
+                ai_response = "저는 28살이에요. 나이보다 젊게 보인다는 말을 자주 들어요. 당신은요?"
+            else:
+                ai_response = f"흠, 재미있는 대화네요. 더 알고 싶은 것이 있으신가요?"
+        elif category == '면접':
+            if "경력" in message.lower() or "경험" in message.lower():
+                ai_response = "저희 회사에서는 이 분야에서 최소 3년 이상의 경험을 가진 분을 찾고 있습니다. 귀하의 경험을 더 자세히 말씀해주시겠어요?"
+            elif "강점" in message.lower() or "장점" in message.lower():
+                ai_response = "자신의 강점과 그것이 우리 회사에 어떻게 도움이 될 수 있는지 구체적인 사례와 함께 설명해주시면 좋겠습니다."
+            elif "약점" in message.lower() or "단점" in message.lower():
+                ai_response = "자신의 약점을 인식하고 개선하려는 노력이 중요합니다. 어떤 부분을 개선하고 계신가요?"
+            elif "연봉" in message.lower() or "급여" in message.lower() or "보상" in message.lower():
+                ai_response = "연봉 범위는 경험과 기술에 따라 다릅니다. 귀하의 기대치는 어느 정도인가요?"
+                if "합격" in message.lower() or "채용" in message.lower() or "제안" in message.lower():
+                    ai_response = "축하합니다! 귀하의 역량이 우리 회사와 잘 맞는다고 생각합니다. 정식 채용 제안을 보내드리겠습니다."
+                    game_session['victory'] = True
+                    game_session['completed'] = True
+            else:
+                ai_response = "좋은 질문입니다. 저희 회사에 관심을 가져주셔서 감사합니다. 다른 궁금한 점이 있으신가요?"
+        else:
+            # 기본 응답
+            if "안녕" in message.lower() or "반갑" in message.lower():
+                ai_response = f"안녕하세요! 저는 {character_name}입니다. 무엇을 도와드릴까요?"
+            elif "고마워" in message.lower() or "감사" in message.lower():
+                ai_response = "천만에요! 더 필요한 것이 있으시면 언제든지 말씀해주세요."
+            elif "도움" in message.lower() or "어떻게" in message.lower():
+                ai_response = "어떤 도움이 필요하신가요? 최대한 자세히 알려주시면 더 잘 도와드릴 수 있어요."
+            else:
+                ai_response = f"네, 이해했습니다. 더 궁금한 점이 있으신가요?"
         
         # 대화 기록에 AI 응답 추가
         game_session['conversation'].append({"role": "assistant", "content": ai_response})
@@ -203,7 +305,7 @@ def ask_question():
         game_session['current_turn'] = current_turn + 1
         
         # 최대 턴 도달 시 게임 종료
-        if current_turn + 1 > max_turns:
+        if current_turn + 1 > max_turns and not game_session['victory']:
             game_session['completed'] = True
         
         # 응답 데이터
@@ -237,13 +339,26 @@ def end_game():
                 'error': 'game_id가 필요합니다.'
             }), 400
         
+        # 게임 세션 데이터 가져오기
+        game_session = GAME_SESSIONS.get(game_id)
+        
+        # 게임 결과 요약
+        result_summary = {
+            'game_id': game_id,
+            'title': game_session.get('title', '알 수 없는 게임') if game_session else '알 수 없는 게임',
+            'completed': game_session.get('completed', True) if game_session else True,
+            'victory': game_session.get('victory', False) if game_session else False,
+            'turns_played': game_session.get('current_turn', 1) - 1 if game_session else 0
+        }
+        
         # 게임 세션 데이터 삭제
         if game_id in GAME_SESSIONS:
             del GAME_SESSIONS[game_id]
         
         return jsonify({
             'message': '게임이 종료되었습니다.',
-            'game_id': game_id
+            'game_id': game_id,
+            'summary': result_summary
         })
     except Exception as e:
         logger.error(f"게임 종료 에러: {str(e)}")
