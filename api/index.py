@@ -6,18 +6,42 @@ import json
 import logging
 import time
 import random
-import openai
+import sys
+import traceback
 from flask import Flask, request, jsonify
 
-# 로깅 설정
-logging.basicConfig(level=logging.INFO)
+# 로깅 강화
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stdout  # Vercel에서는 표준 출력으로 로그를 보냄
+)
 logger = logging.getLogger(__name__)
+
+# 시작 로그
+logger.info("=== API 서버 시작 중 ===")
+logger.info(f"Python version: {sys.version}")
+logger.info(f"Current directory: {os.getcwd()}")
+try:
+    logger.info(f"Directory contents: {os.listdir('.')}")
+except Exception as e:
+    logger.error(f"디렉토리 내용 확인 실패: {str(e)}")
+logger.info(f"Is Vercel environment: {bool(os.environ.get('VERCEL'))}")
 
 # Flask 앱 초기화
 app = Flask(__name__)
 
 # OpenAI API 설정
-openai.api_key = os.environ.get('OPENAI_API_KEY', '')
+try:
+    import openai
+    openai.api_key = os.environ.get('OPENAI_API_KEY', '')
+    logger.info(f"OpenAI API key 설정됨: {bool(openai.api_key)}")
+except ImportError:
+    logger.error("OpenAI 모듈을 임포트할 수 없습니다.")
+    openai = None
+except Exception as e:
+    logger.error(f"OpenAI 설정 오류: {str(e)}")
+    openai = None
 
 # 게임 세션 데이터 저장소
 GAME_SESSIONS = {}
@@ -318,11 +342,22 @@ def update_item_prompt(item_id):
             }), 404
         
         # 프롬프트 파일 경로
-        prompt_file = os.path.join('item_prompts', f"{item_id}.json")
+        prompt_file_name = f"{item_id}.json"
+        prompt_file = os.path.join('item_prompts', prompt_file_name)
+        file_path = get_file_path(prompt_file)
+        
+        # 디렉토리 확인 및 생성
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
         
         # 프롬프트 파일 저장
-        with open(prompt_file, 'w', encoding='utf-8') as f:
+        with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+        
+        # 원본 위치에도 저장 (로컬 환경에서만)
+        if not os.environ.get('VERCEL'):
+            os.makedirs(os.path.dirname(prompt_file), exist_ok=True)
+            with open(prompt_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
         
         return jsonify({
             "success": True,
@@ -447,68 +482,130 @@ def get_stats():
             "error": str(e)
         }), 500
 
+# 파일 시스템 경로 처리를 Vercel 환경에 맞게 수정
+def get_base_path():
+    """Vercel 환경과 로컬 환경에서 모두 작동하는 기본 경로 반환"""
+    if os.environ.get('VERCEL'):
+        # Vercel 서버리스 환경에서는 /tmp 디렉토리를 사용
+        return "/tmp"
+    else:
+        # 로컬 환경에서는 현재 디렉토리 기준
+        return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+def get_file_path(file_path):
+    """파일 경로를 환경에 따라 적절히 변환"""
+    if os.environ.get('VERCEL'):
+        # Vercel 환경에서는 상대 경로를 /tmp 아래로 변환
+        base_name = os.path.basename(file_path)
+        dir_name = os.path.dirname(file_path)
+        
+        # 디렉토리 구조 유지
+        if dir_name:
+            tmp_dir = os.path.join("/tmp", dir_name)
+            os.makedirs(tmp_dir, exist_ok=True)
+            return os.path.join(tmp_dir, base_name)
+        else:
+            return os.path.join("/tmp", base_name)
+    else:
+        # 로컬 환경에서는 그대로 사용
+        return file_path
+
 # 항목 데이터 저장 및 불러오기 함수
 def save_items():
     """게임 항목 데이터를 파일에 저장"""
     try:
-        with open(ITEMS_DATA_FILE, 'w', encoding='utf-8') as f:
+        # Vercel 환경에서 경로 변환
+        file_path = get_file_path(ITEMS_DATA_FILE)
+        logger.info(f"게임 항목 저장 시도: {file_path}")
+        
+        # 디렉토리 생성 확인
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        
+        with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(GAMES, f, ensure_ascii=False, indent=2)
-        logger.info(f"게임 항목 {len(GAMES)}개가 '{ITEMS_DATA_FILE}'에 저장되었습니다.")
+        logger.info(f"게임 항목 {len(GAMES)}개가 '{file_path}'에 저장되었습니다.")
+        
+        # 로컬 환경에서는 원본 경로에도 저장
+        if not os.environ.get('VERCEL'):
+            orig_path = ITEMS_DATA_FILE
+            os.makedirs(os.path.dirname(orig_path), exist_ok=True)
+            with open(orig_path, 'w', encoding='utf-8') as f:
+                json.dump(GAMES, f, ensure_ascii=False, indent=2)
+            logger.info(f"로컬 환경: 게임 항목이 '{orig_path}'에도 저장되었습니다.")
+        
         return True
     except Exception as e:
         logger.error(f"게임 항목 저장 중 오류: {str(e)}")
+        logger.error(traceback.format_exc())
         return False
 
 def load_items():
     """파일에서 게임 항목 데이터 불러오기"""
     global GAMES
     try:
-        if os.path.exists(ITEMS_DATA_FILE):
-            with open(ITEMS_DATA_FILE, 'r', encoding='utf-8') as f:
+        # Vercel 환경에서 경로 변환
+        file_path = get_file_path(ITEMS_DATA_FILE)
+        logger.info(f"게임 항목 로드 시도: {file_path}")
+        
+        if os.path.exists(file_path):
+            with open(file_path, 'r', encoding='utf-8') as f:
                 GAMES = json.load(f)
-            logger.info(f"게임 항목 {len(GAMES)}개가 '{ITEMS_DATA_FILE}'에서 로드되었습니다.")
+            logger.info(f"게임 항목 {len(GAMES)}개가 '{file_path}'에서 로드되었습니다.")
         else:
-            # 기본 항목 데이터 (원래 하드코딩되어 있던 데이터)
-            GAMES = [
-                {
-                    "id": 1,
-                    "title": "플러팅 고수! 전화번호 따기",
-                    "category": "플러팅",
-                    "character_name": "윤지혜",
-                    "character_setting": "당신은 카페에서 우연히 마주친 매력적인 사람입니다. 친절하지만 쉽게 개인정보를 알려주지 않는 성격입니다.",
-                    "max_turns": 5,
-                    "win_condition": "상대방의 전화번호를 얻어낸다",
-                    "lose_condition": "턴 제한을 초과하거나 상대방이 대화를 거부한다",
-                    "difficulty": "보통"
-                },
-                {
-                    "id": 2,
-                    "title": "파티에서 번호 교환하기",
-                    "category": "플러팅",
-                    "character_name": "김민준",
-                    "character_setting": "당신은 친구의 파티에서 만난 사람입니다. 사교적이지만 많은 사람들에게 관심을 받고 있어 쉽게 번호를 주지 않습니다.",
-                    "max_turns": 4,
-                    "win_condition": "상대방과 번호를 교환한다",
-                    "lose_condition": "턴 제한을 초과하거나 상대방이 관심을 잃는다",
-                    "difficulty": "쉬움"
-                },
-                {
-                    "id": 3,
-                    "title": "꿈의 직장 면접 성공하기",
-                    "category": "면접",
-                    "character_name": "박상현",
-                    "character_setting": "당신은 대기업 면접관입니다. 기술적 지식과 문화적 적합성을 모두 평가하고 있습니다. 인재를 뽑고 싶지만 까다로운 기준이 있습니다.",
-                    "max_turns": 10,
-                    "win_condition": "면접관을 설득해 일자리 제안을 받는다",
-                    "lose_condition": "자신의 경력이나 능력에 대해 일관성 없는 대답을 한다",
-                    "difficulty": "어려움"
-                }
-            ]
-            logger.info(f"기본 게임 항목 {len(GAMES)}개가 로드되었습니다.")
-            save_items()  # 기본 항목 저장
+            # Vercel 환경에서는 파일이 없을 수 있으므로, 데이터 폴더에서 로드 시도
+            orig_path = ITEMS_DATA_FILE
+            logger.info(f"원본 경로에서 게임 항목 로드 시도: {orig_path}")
+            
+            if os.path.exists(orig_path):
+                with open(orig_path, 'r', encoding='utf-8') as f:
+                    GAMES = json.load(f)
+                logger.info(f"게임 항목 {len(GAMES)}개가 '{orig_path}'에서 로드되었습니다.")
+                # 로드 후 /tmp에 저장
+                save_items()
+            else:
+                # 기본 항목 데이터
+                logger.info(f"게임 항목 파일이 없어 기본 데이터로 초기화합니다.")
+                GAMES = [
+                    {
+                        "id": 1,
+                        "title": "플러팅 고수! 전화번호 따기",
+                        "category": "플러팅",
+                        "character_name": "윤지혜",
+                        "character_setting": "당신은 카페에서 우연히 마주친 매력적인 사람입니다. 친절하지만 쉽게 개인정보를 알려주지 않는 성격입니다.",
+                        "max_turns": 5,
+                        "win_condition": "상대방의 전화번호를 얻어낸다",
+                        "lose_condition": "턴 제한을 초과하거나 상대방이 대화를 거부한다",
+                        "difficulty": "보통"
+                    },
+                    {
+                        "id": 2,
+                        "title": "파티에서 번호 교환하기",
+                        "category": "플러팅",
+                        "character_name": "김민준",
+                        "character_setting": "당신은 친구의 파티에서 만난 사람입니다. 사교적이지만 많은 사람들에게 관심을 받고 있어 쉽게 번호를 주지 않습니다.",
+                        "max_turns": 4,
+                        "win_condition": "상대방과 번호를 교환한다",
+                        "lose_condition": "턴 제한을 초과하거나 상대방이 관심을 잃는다",
+                        "difficulty": "쉬움"
+                    },
+                    {
+                        "id": 3,
+                        "title": "꿈의 직장 면접 성공하기",
+                        "category": "면접",
+                        "character_name": "박상현",
+                        "character_setting": "당신은 대기업 면접관입니다. 기술적 지식과 문화적 적합성을 모두 평가하고 있습니다. 인재를 뽑고 싶지만 까다로운 기준이 있습니다.",
+                        "max_turns": 10,
+                        "win_condition": "면접관을 설득해 일자리 제안을 받는다",
+                        "lose_condition": "자신의 경력이나 능력에 대해 일관성 없는 대답을 한다",
+                        "difficulty": "어려움"
+                    }
+                ]
+                logger.info(f"기본 게임 항목 {len(GAMES)}개가 로드되었습니다.")
+                save_items()  # 기본 항목 저장
         return True
     except Exception as e:
         logger.error(f"게임 항목 로드 중 오류: {str(e)}")
+        logger.error(traceback.format_exc())
         # 기본 항목으로 초기화
         GAMES = []
         return False
@@ -517,9 +614,11 @@ def load_items():
 def save_prompts():
     """게임 프롬프트 데이터를 파일에 저장"""
     try:
-        with open(PROMPTS_DATA_FILE, 'w', encoding='utf-8') as f:
+        file_path = get_file_path(PROMPTS_DATA_FILE)
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(PROMPTS, f, ensure_ascii=False, indent=2)
-        logger.info(f"게임 프롬프트가 '{PROMPTS_DATA_FILE}'에 저장되었습니다.")
+        logger.info(f"게임 프롬프트가 '{file_path}'에 저장되었습니다.")
         return True
     except Exception as e:
         logger.error(f"게임 프롬프트 저장 중 오류: {str(e)}")
@@ -529,32 +628,42 @@ def load_prompts():
     """파일에서 게임 프롬프트 데이터 불러오기"""
     global PROMPTS
     try:
-        if os.path.exists(PROMPTS_DATA_FILE):
-            with open(PROMPTS_DATA_FILE, 'r', encoding='utf-8') as f:
+        file_path = get_file_path(PROMPTS_DATA_FILE)
+        if os.path.exists(file_path):
+            with open(file_path, 'r', encoding='utf-8') as f:
                 PROMPTS = json.load(f)
-            logger.info(f"게임 프롬프트가 '{PROMPTS_DATA_FILE}'에서 로드되었습니다.")
+            logger.info(f"게임 프롬프트가 '{file_path}'에서 로드되었습니다.")
         else:
-            # 기본 프롬프트 데이터
-            PROMPTS = {
-                "system_prompt_template": "당신은 '상황 대처 게임'의 AI입니다.\n카테고리: {category}\n상황: {title}\n\n당신은 다음 상황에서 아래와 같은 캐릭터로 역할을 해야 합니다.\n{character_setting}\n\n규칙:\n1. 당신은 정해진 캐릭터로서 대화를 이어가야 합니다.\n2. 턴제 게임으로, 플레이어는 {max_turns}턴 안에 승리 조건을 달성해야 합니다.\n3. 현재 턴: {current_turn}/{max_turns}\n4. 승리 조건: {win_condition}\n5. 패배 조건: {lose_condition}\n6. 난이도: {difficulty}\n\n승리 조건이 충족되면 축하 메시지와 함께 게임이 종료됩니다.\n패배 조건이 충족되거나 턴을 모두 소진하면 게임이 종료됩니다.\n항상 현재 역할에 맞게 응답하세요.",
-                "welcome_message": "안녕하세요! '{title}' 상황에 오신 것을 환영합니다. 이 상황에서 여러분은 {max_turns}턴 안에 '{win_condition}'을(를) 달성해야 합니다. 대화를 통해 목표를 이루어보세요!",
-                "correct_answer_message": "축하합니다! '{win_condition}'에 성공하셨습니다!",
-                "wrong_answer_message": "아쉽게도 목표를 달성하지 못했습니다. 다음에 다시 도전해보세요.",
-                "game_end_message": "게임이 종료되었습니다. 플레이해주셔서 감사합니다.",
-                "error_messages": {
-                    "game_not_found": "유효하지 않은 게임 ID입니다.",
-                    "game_already_completed": "게임이 이미 종료되었습니다. 새 게임을 시작하세요.",
-                    "invalid_input": "메시지가 없습니다.",
-                    "server_error": "서버 오류가 발생했습니다. 다시 시도해주세요."
-                },
-                "ai_config": {
-                    "model": "gpt-3.5-turbo",
-                    "max_tokens": 150,
-                    "temperature": 0.7
+            # Vercel 환경에서는 파일이 없을 수 있으므로, 데이터 폴더에서 로드 시도
+            orig_path = PROMPTS_DATA_FILE
+            if os.path.exists(orig_path):
+                with open(orig_path, 'r', encoding='utf-8') as f:
+                    PROMPTS = json.load(f)
+                logger.info(f"게임 프롬프트가 '{orig_path}'에서 로드되었습니다.")
+                # 로드 후 /tmp에 저장
+                save_prompts()
+            else:
+                # 기본 프롬프트 데이터
+                PROMPTS = {
+                    "system_prompt_template": "당신은 '상황 대처 게임'의 AI입니다.\n카테고리: {category}\n상황: {title}\n\n당신은 다음 상황에서 아래와 같은 캐릭터로 역할을 해야 합니다.\n{character_setting}\n\n규칙:\n1. 당신은 정해진 캐릭터로서 대화를 이어가야 합니다.\n2. 턴제 게임으로, 플레이어는 {max_turns}턴 안에 승리 조건을 달성해야 합니다.\n3. 현재 턴: {current_turn}/{max_turns}\n4. 승리 조건: {win_condition}\n5. 패배 조건: {lose_condition}\n6. 난이도: {difficulty}\n\n승리 조건이 충족되면 축하 메시지와 함께 게임이 종료됩니다.\n패배 조건이 충족되거나 턴을 모두 소진하면 게임이 종료됩니다.\n항상 현재 역할에 맞게 응답하세요.",
+                    "welcome_message": "안녕하세요! '{title}' 상황에 오신 것을 환영합니다. 이 상황에서 여러분은 {max_turns}턴 안에 '{win_condition}'을(를) 달성해야 합니다. 대화를 통해 목표를 이루어보세요!",
+                    "correct_answer_message": "축하합니다! '{win_condition}'에 성공하셨습니다!",
+                    "wrong_answer_message": "아쉽게도 목표를 달성하지 못했습니다. 다음에 다시 도전해보세요.",
+                    "game_end_message": "게임이 종료되었습니다. 플레이해주셔서 감사합니다.",
+                    "error_messages": {
+                        "game_not_found": "유효하지 않은 게임 ID입니다.",
+                        "game_already_completed": "게임이 이미 종료되었습니다. 새 게임을 시작하세요.",
+                        "invalid_input": "메시지가 없습니다.",
+                        "server_error": "서버 오류가 발생했습니다. 다시 시도해주세요."
+                    },
+                    "ai_config": {
+                        "model": "gpt-3.5-turbo",
+                        "max_tokens": 150,
+                        "temperature": 0.7
+                    }
                 }
-            }
-            logger.info("기본 게임 프롬프트가 로드되었습니다.")
-            save_prompts()  # 기본 프롬프트 저장
+                logger.info("기본 게임 프롬프트가 로드되었습니다.")
+                save_prompts()  # 기본 프롬프트 저장
         return True
     except Exception as e:
         logger.error(f"게임 프롬프트 로드 중 오류: {str(e)}")
@@ -566,9 +675,11 @@ def load_prompts():
 def save_game_logs():
     """게임 로그를 파일에 저장"""
     try:
-        with open(GAME_LOGS_FILE, 'w', encoding='utf-8') as f:
+        file_path = get_file_path(GAME_LOGS_FILE)
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(GAME_LOGS, f, ensure_ascii=False, indent=2)
-        logger.info(f"게임 로그 {len(GAME_LOGS)}개가 '{GAME_LOGS_FILE}'에 저장되었습니다.")
+        logger.info(f"게임 로그 {len(GAME_LOGS)}개가 '{file_path}'에 저장되었습니다.")
         return True
     except Exception as e:
         logger.error(f"게임 로그 저장 중 오류: {str(e)}")
@@ -578,13 +689,23 @@ def load_game_logs():
     """파일에서 게임 로그 불러오기"""
     global GAME_LOGS
     try:
-        if os.path.exists(GAME_LOGS_FILE):
-            with open(GAME_LOGS_FILE, 'r', encoding='utf-8') as f:
+        file_path = get_file_path(GAME_LOGS_FILE)
+        if os.path.exists(file_path):
+            with open(file_path, 'r', encoding='utf-8') as f:
                 GAME_LOGS = json.load(f)
-            logger.info(f"게임 로그 {len(GAME_LOGS)}개가 '{GAME_LOGS_FILE}'에서 로드되었습니다.")
+            logger.info(f"게임 로그 {len(GAME_LOGS)}개가 '{file_path}'에서 로드되었습니다.")
         else:
-            GAME_LOGS = {}
-            logger.info("게임 로그 파일이 없어 빈 로그로 초기화합니다.")
+            # Vercel 환경에서는 파일이 없을 수 있으므로, 데이터 폴더에서 로드 시도
+            orig_path = GAME_LOGS_FILE
+            if os.path.exists(orig_path):
+                with open(orig_path, 'r', encoding='utf-8') as f:
+                    GAME_LOGS = json.load(f)
+                logger.info(f"게임 로그 {len(GAME_LOGS)}개가 '{orig_path}'에서 로드되었습니다.")
+                # 로드 후 /tmp에 저장
+                save_game_logs()
+            else:
+                GAME_LOGS = {}
+                logger.info("게임 로그 파일이 없어 빈 로그로 초기화합니다.")
         return True
     except Exception as e:
         logger.error(f"게임 로그 로드 중 오류: {str(e)}")
@@ -595,10 +716,29 @@ def load_game_logs():
 def load_item_prompt(item_id):
     """특정 아이템의 프롬프트 설정 가져오기"""
     try:
-        prompt_file = os.path.join('item_prompts', f"{item_id}.json")
+        # Vercel 환경에서 파일 경로 처리
+        prompt_file_name = f"{item_id}.json"
+        prompt_file = os.path.join('item_prompts', prompt_file_name)
+        tmp_file = get_file_path(prompt_file)
+        
+        # 먼저 임시 디렉토리에서 확인
+        if os.path.exists(tmp_file):
+            with open(tmp_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+                
+        # 로컬 파일 시스템에서 확인
         if os.path.exists(prompt_file):
             with open(prompt_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                prompt_data = json.load(f)
+                
+            # Vercel 환경에서는 임시 디렉토리에 저장
+            if os.environ.get('VERCEL'):
+                os.makedirs(os.path.dirname(tmp_file), exist_ok=True)
+                with open(tmp_file, 'w', encoding='utf-8') as f:
+                    json.dump(prompt_data, f, ensure_ascii=False, indent=2)
+                    
+            return prompt_data
+            
         return None
     except Exception as e:
         logger.error(f"아이템 {item_id} 프롬프트 로드 중 오류: {str(e)}")
@@ -660,11 +800,51 @@ def home():
 @app.route('/api/health')
 def health_check():
     """API 서버 상태 확인"""
-    return jsonify({
-        "status": "online",
-        "message": "API 서버가 정상 작동 중입니다.",
-        "timestamp": int(time.time())
-    })
+    try:
+        # 서버 상태 정보 수집
+        status_info = {
+            "status": "online",
+            "message": "API 서버가 정상 작동 중입니다.",
+            "timestamp": int(time.time()),
+            "environment": "Vercel" if os.environ.get('VERCEL') else "Local",
+            "debug_info": {
+                "python_version": sys.version,
+                "working_directory": os.getcwd(),
+                "openai_available": bool(openai.api_key),
+                "games_loaded": len(GAMES),
+                "tmp_dir_exists": os.path.exists("/tmp"),
+                "data_dir_exists": os.path.exists("data")
+            }
+        }
+        
+        # 파일 시스템 테스트
+        if os.environ.get('VERCEL'):
+            try:
+                test_file = "/tmp/health_test.txt"
+                with open(test_file, "w") as f:
+                    f.write("Health check test")
+                with open(test_file, "r") as f:
+                    content = f.read()
+                os.remove(test_file)
+                status_info["debug_info"]["filesystem_test"] = "success"
+                status_info["debug_info"]["filesystem_content"] = content
+            except Exception as fs_error:
+                status_info["debug_info"]["filesystem_test"] = "failed"
+                status_info["debug_info"]["filesystem_error"] = str(fs_error)
+        
+        return jsonify(status_info)
+    except Exception as e:
+        logger.error(f"Health 체크 에러: {str(e)}")
+        import traceback
+        tb = traceback.format_exc()
+        logger.error(f"상세 에러: {tb}")
+        return jsonify({
+            "status": "error",
+            "message": "API 서버 상태 확인 중 오류가 발생했습니다.",
+            "error": str(e),
+            "traceback": tb,
+            "timestamp": int(time.time())
+        }), 500
 
 # 디버그 정보 API
 @app.route('/api/debug')
