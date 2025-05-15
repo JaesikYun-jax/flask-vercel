@@ -1,13 +1,11 @@
 """
-AI 추측 게임 API 서버 - 간소화 버전
+AI 추측 게임 API 서버 - 기본 버전
 """
 import os
 import json
 import logging
 import time
 import random
-import sys
-import platform
 from flask import Flask, request, jsonify
 
 # 로깅 설정
@@ -20,10 +18,6 @@ app = Flask(__name__)
 # 게임 세션 데이터 저장소
 GAME_SESSIONS = {}
 
-# OpenAI API 설정
-OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
-OPENAI_AVAILABLE = bool(OPENAI_API_KEY)
-
 # 기본 게임 항목
 GAMES = [
     {
@@ -31,7 +25,7 @@ GAMES = [
         "title": "플러팅 고수! 전화번호 따기",
         "category": "플러팅",
         "character_name": "윤지혜",
-        "character_setting": "당신은 카페에서 우연히 마주친 매력적인 사람입니다. 친절하지만 쉽게 개인정보를 알려주지 않는 성격입니다.",
+        "character_setting": "당신은 카페에서 우연히 마주친 매력적인 사람입니다.",
         "max_turns": 5,
         "win_condition": "상대방의 전화번호를 얻어낸다"
     },
@@ -40,7 +34,7 @@ GAMES = [
         "title": "파티에서 번호 교환하기",
         "category": "플러팅",
         "character_name": "김민준",
-        "character_setting": "당신은 친구의 파티에서 만난 사람입니다. 사교적이지만 많은 사람들에게 관심을 받고 있어 쉽게 번호를 주지 않습니다.",
+        "character_setting": "당신은 친구의 파티에서 만난 사람입니다.",
         "max_turns": 4,
         "win_condition": "상대방과 번호를 교환한다"
     },
@@ -49,7 +43,7 @@ GAMES = [
         "title": "꿈의 직장 면접 성공하기",
         "category": "면접",
         "character_name": "박상현",
-        "character_setting": "당신은 대기업 면접관입니다. 기술적 지식과 문화적 적합성을 모두 평가하고 있습니다. 인재를 뽑고 싶지만 까다로운 기준이 있습니다.",
+        "character_setting": "당신은 대기업 면접관입니다.",
         "max_turns": 10,
         "win_condition": "면접관을 설득해 일자리 제안을 받는다"
     }
@@ -96,17 +90,9 @@ def debug_info():
     """디버깅 정보 반환"""
     try:
         debug_data = {
-            "python_version": sys.version,
-            "platform": platform.platform(),
-            "environment_keys": [k for k in os.environ.keys() 
-                          if not k.startswith('AWS_') 
-                          and not 'SECRET' in k.upper() 
-                          and not 'KEY' in k.upper()],
             "active_game_sessions": len(GAME_SESSIONS),
             "games_available": len(GAMES),
-            "server_time": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()),
-            "vercel_deployment_id": os.environ.get('VERCEL_DEPLOYMENT_ID', 'local'),
-            "openai_api_configured": OPENAI_AVAILABLE
+            "server_time": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
         }
         return jsonify({
             "success": True,
@@ -178,18 +164,6 @@ def start_game():
             "welcome_message": f"안녕하세요! {target_game.get('character_name', 'AI')}입니다. 게임을 시작합니다."
         }
         
-        # 시스템 메시지 생성
-        system_message = f"""
-당신은 '{target_game.get('title')}' 게임의 '{target_game.get('character_name')}' 역할을 수행합니다.
-캐릭터 설정: {target_game.get('character_setting')}
-게임 카테고리: {target_game.get('category')}
-승리 조건: {target_game.get('win_condition')}
-최대 턴: {target_game.get('max_turns')}
-
-대화를 진행하며 캐릭터 설정에 충실하게 응답해주세요.
-사용자가 승리 조건을 달성하면 승리 메시지를 제공하세요.
-"""
-        
         # 게임 세션 저장
         GAME_SESSIONS[game_id] = {
             'game_id': game_id,
@@ -202,7 +176,7 @@ def start_game():
             'current_turn': 1,
             'completed': False,
             'victory': False,
-            'conversation': [{"role": "system", "content": system_message}]
+            'conversation': []
         }
         
         return jsonify(game_info)
@@ -282,52 +256,23 @@ def ask_question():
         
         game_session['conversation'].append({"role": "user", "content": message})
         
-        # OpenAI API 사용 가능성 확인
-        if OPENAI_AVAILABLE:
-            # OPENAI API 사용 가능 시 나중에 외부 API 연동
-            ai_response = f"OpenAI API 통합 준비됨 - 현재는 카테고리({category})별 기본 응답 제공: {message}"
-        else:
-            # 카테고리별 응답 생성
-            if category == '플러팅':
-                if "전화" in message.lower() or "번호" in message.lower() or "연락처" in message.lower() or "만날래" in message.lower():
-                    ai_response = f"네! 제 전화번호는 010-1234-5678입니다. 언제든지 연락주세요! 만나면 좋을 것 같아요."
-                    game_session['victory'] = True
-                    game_session['completed'] = True
-                elif "이름" in message.lower() or "누구" in message.lower():
-                    ai_response = f"제 이름은 {character_name}입니다. 만나서 반가워요!"
-                elif "직업" in message.lower() or "일" in message.lower() or "뭐하" in message.lower():
-                    ai_response = "저는 디자인 회사에서 UX 디자이너로 일하고 있어요. 사용자 경험 디자인에 관심이 많답니다."
-                elif "취미" in message.lower() or "관심" in message.lower():
-                    ai_response = "저는 여행과 사진 찍기를 좋아해요. 요즘은 베이킹에도 관심이 생겼어요. 당신은 어떤 취미가 있나요?"
-                elif "나이" in message.lower() or "몇 살" in message.lower():
-                    ai_response = "저는 28살이에요. 나이보다 젊게 보인다는 말을 자주 들어요. 당신은요?"
-                else:
-                    ai_response = f"흠, 재미있는 대화네요. 더 알고 싶은 것이 있으신가요?"
-            elif category == '면접':
-                if "경력" in message.lower() or "경험" in message.lower():
-                    ai_response = "저희 회사에서는 이 분야에서 최소 3년 이상의 경험을 가진 분을 찾고 있습니다. 귀하의 경험을 더 자세히 말씀해주시겠어요?"
-                elif "강점" in message.lower() or "장점" in message.lower():
-                    ai_response = "자신의 강점과 그것이 우리 회사에 어떻게 도움이 될 수 있는지 구체적인 사례와 함께 설명해주시면 좋겠습니다."
-                elif "약점" in message.lower() or "단점" in message.lower():
-                    ai_response = "자신의 약점을 인식하고 개선하려는 노력이 중요합니다. 어떤 부분을 개선하고 계신가요?"
-                elif "연봉" in message.lower() or "급여" in message.lower() or "보상" in message.lower():
-                    ai_response = "연봉 범위는 경험과 기술에 따라 다릅니다. 귀하의 기대치는 어느 정도인가요?"
-                    if "합격" in message.lower() or "채용" in message.lower() or "제안" in message.lower():
-                        ai_response = "축하합니다! 귀하의 역량이 우리 회사와 잘 맞는다고 생각합니다. 정식 채용 제안을 보내드리겠습니다."
-                        game_session['victory'] = True
-                        game_session['completed'] = True
-                else:
-                    ai_response = "좋은 질문입니다. 저희 회사에 관심을 가져주셔서 감사합니다. 다른 궁금한 점이 있으신가요?"
+        # 카테고리별 응답 생성
+        if category == '플러팅':
+            if "전화" in message.lower() or "번호" in message.lower() or "연락처" in message.lower() or "만날래" in message.lower():
+                ai_response = f"네! 제 전화번호는 010-1234-5678입니다. 언제든지 연락주세요! 만나면 좋을 것 같아요."
+                game_session['victory'] = True
+                game_session['completed'] = True
             else:
-                # 기본 응답
-                if "안녕" in message.lower() or "반갑" in message.lower():
-                    ai_response = f"안녕하세요! 저는 {character_name}입니다. 무엇을 도와드릴까요?"
-                elif "고마워" in message.lower() or "감사" in message.lower():
-                    ai_response = "천만에요! 더 필요한 것이 있으시면 언제든지 말씀해주세요."
-                elif "도움" in message.lower() or "어떻게" in message.lower():
-                    ai_response = "어떤 도움이 필요하신가요? 최대한 자세히 알려주시면 더 잘 도와드릴 수 있어요."
-                else:
-                    ai_response = f"네, 이해했습니다. 더 궁금한 점이 있으신가요?"
+                ai_response = f"흠, 재미있는 대화네요. 더 알고 싶은 것이 있으신가요?"
+        elif category == '면접':
+            if "연봉" in message.lower() and ("합격" in message.lower() or "채용" in message.lower()):
+                ai_response = "축하합니다! 귀하의 역량이 우리 회사와 잘 맞는다고 생각합니다. 정식 채용 제안을 보내드리겠습니다."
+                game_session['victory'] = True
+                game_session['completed'] = True
+            else:
+                ai_response = "좋은 질문입니다. 다른 궁금한 점이 있으신가요?"
+        else:
+            ai_response = f"네, 이해했습니다. 더 궁금한 점이 있으신가요?"
         
         # 대화 기록에 AI 응답 추가
         game_session['conversation'].append({"role": "assistant", "content": ai_response})
