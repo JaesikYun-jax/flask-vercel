@@ -378,7 +378,7 @@ def list_games():
     """게임 목록 반환"""
     logger.info(f"게임 목록 요청 처리 - 현재 로드된 게임 수: {len(GAMES)}")
     
-    # GAMES가 비어있는 경우 로드
+    # GAMES가 비어있는 경우에만 로드
     if len(GAMES) == 0:
         try:
             load_items()
@@ -394,17 +394,15 @@ def list_games():
                 }
             }), 500
     
-    # 게임 목록을 반환할 때 필요한 필드만 포함 (클라이언트용 필터링)
+    # 게임 목록을 반환할 때 필요한 최소한의 필드만 포함 (클라이언트용 최적화)
     client_games = []
     for game in GAMES:
         client_games.append({
             "id": game.get("id"),
             "title": game.get("title"),
             "category": game.get("category"),
-            "character_name": game.get("character_name"),
-            "max_turns": game.get("max_turns"),
-            "win_condition": game.get("win_condition"),
-            "difficulty": game.get("difficulty")
+            "difficulty": game.get("difficulty"),
+            "max_turns": game.get("max_turns")
         })
     
     logger.info(f"게임 목록 응답: {len(client_games)}개 게임 반환")
@@ -412,7 +410,6 @@ def list_games():
         "success": True,
         "data": client_games,
         "debug_info": {
-            "source": "game_items.json",
             "games_loaded": len(GAMES),
             "timestamp": int(time.time())
         }
