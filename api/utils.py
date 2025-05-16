@@ -112,32 +112,11 @@ def create_openai_client():
         if api_key:
             break
     
-    # 키가 없는 경우, 테스트 모드 API 클라이언트 반환
+    # 키가 없는 경우 예외 발생
     if not api_key:
-        print("⚠️ 경고: OpenAI API 키가 설정되지 않았습니다. 테스트 모드로 작동합니다.")
-        # 테스트 모드에서는 더미 클라이언트 반환
-        return MockOpenAIClient()
+        raise ValueError("OpenAI API 키가 설정되지 않았습니다. 환경 변수를 확인하세요.")
     
     return OpenAI(api_key=api_key)
-
-# 테스트용 모의 OpenAI 클라이언트
-class MockOpenAIClient:
-    """API 키가 없을 때 사용할 테스트용 모의 클라이언트"""
-    
-    def __init__(self):
-        self.chat = MockChatCompletion()
-    
-    class MockChatCompletion:
-        def create(self, **kwargs):
-            return {
-                "choices": [
-                    {
-                        "message": {
-                            "content": "이것은 테스트 응답입니다. 실제 API 키가 설정되지 않았습니다."
-                        }
-                    }
-                ]
-            }
 
 # 게임 항목 로드
 def load_game_items():

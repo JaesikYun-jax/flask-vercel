@@ -60,6 +60,28 @@ def handler(request):
             # JSON 파싱 실패 시 빈 객체로 처리
             body = {}
         
+        # API 키 검증
+        try:
+            client = create_openai_client()
+            logger.info("OpenAI API 키 검증 성공")
+        except Exception as e:
+            logger.error(f"OpenAI API 키 검증 실패: {str(e)}")
+            response, status_code = create_response(
+                success=False,
+                error="OpenAI API 키가 설정되지 않았거나 유효하지 않습니다.",
+                status_code=500
+            )
+            return {
+                "statusCode": status_code,
+                "body": json.dumps(response),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+                    "Access-Control-Allow-Methods": "POST, OPTIONS"
+                }
+            }
+        
         # 필수 파라미터 확인
         game_id = body.get('game_id')
         message = body.get('message', '')
@@ -75,37 +97,28 @@ def handler(request):
             logger.error("메시지 누락")
             raise ValueError("메시지가 필요합니다.")
         
-        # 게임 세션 데이터 로드 또는 초기화
-        game_session = GAME_SESSIONS.get(game_id, {})
+        # 게임 세션 데이터 로드
+        game_session = GAME_SESSIONS.get(game_id)
         
-        # 세션 데이터가 없으면 게임 아이템 정보 로드
+        # 유효하지 않은 게임 ID인 경우
         if not game_session:
-            logger.info(f"새로운 게임 세션 생성: {game_id}")
-            all_items = load_game_items()
-            # game_id로 시작된 세션의 아이템 ID 찾기 (실제로는 DB에서 조회)
-            # 임시로 id=1 (전화번호 따기) 사용
-            game_item = next((item for item in all_items if item.get('id') == 1), None)
-            
-            if not game_item:
-                logger.error("유효한 게임 아이템을 찾을 수 없음")
-                raise ValueError("유효하지 않은 게임 세션입니다.")
-            
-            # 세션 초기화
-            game_session = {
-                'game_id': game_id,
-                'item_id': game_item.get('id'),
-                'title': game_item.get('title'),
-                'win_condition': game_item.get('win_condition'),
-                'max_turns': game_item.get('max_turns', 5),
-                'current_turn': 1,
-                'completed': False,
-                'victory': False,
-                'conversation': []
+            logger.error(f"유효하지 않은 게임 ID: {game_id}")
+            response, status_code = create_response(
+                success=False,
+                error="유효하지 않은 게임 세션입니다. 새 게임을 시작해주세요.",
+                code="INVALID_GAME_ID",
+                status_code=404
+            )
+            return {
+                "statusCode": status_code,
+                "body": json.dumps(response),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+                    "Access-Control-Allow-Methods": "POST, OPTIONS"
+                }
             }
-            GAME_SESSIONS[game_id] = game_session
-            logger.info(f"게임 세션 초기화 완료: {game_session}")
-        else:
-            logger.info(f"기존 게임 세션 로드: {game_id}")
         
         # 현재 턴 가져오기
         current_turn = game_session.get('current_turn', 1)
@@ -228,14 +241,6 @@ def handler(request):
         # 대화 기록 업데이트
         conversation = game_session.get('conversation', [])
         conversation.append({"role": "user", "content": message})
-        
-        # OpenAI 클라이언트 생성
-        try:
-            client = create_openai_client()
-            logger.info("OpenAI 클라이언트 생성 성공")
-        except Exception as e:
-            logger.error(f"OpenAI 클라이언트 생성 실패: {str(e)}")
-            raise
         
         try:
             # 승리 조건 확인

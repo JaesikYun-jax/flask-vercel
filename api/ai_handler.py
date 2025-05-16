@@ -12,59 +12,13 @@ def create_openai_client():
     try:
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
-            logger.warning("OPENAI_API_KEY가 설정되지 않았습니다. 기본 응답을 반환합니다.")
-            # 가짜 클라이언트 반환
-            return MockOpenAIClient()
+            logger.error("OPENAI_API_KEY가 설정되지 않았습니다.")
+            raise ValueError("OpenAI API 키가 설정되지 않았습니다. 환경 변수를 확인하세요.")
         
         return OpenAI(api_key=api_key)
     except Exception as e:
         logger.error(f"OpenAI 클라이언트 생성 오류: {str(e)}")
-        return MockOpenAIClient()
-
-class MockOpenAIClient:
-    """API 키가 없을 때 사용할 가짜 OpenAI 클라이언트"""
-    class ChatCompletions:
-        def create(self, model, messages, max_tokens=None, temperature=None):
-            """가짜 응답 생성"""
-            logger.info("Mock OpenAI 클라이언트 사용 중")
-            
-            # 가짜 응답 데이터 구조
-            class MockMessage:
-                def __init__(self, content):
-                    self.content = content
-            
-            class MockChoice:
-                def __init__(self, content):
-                    self.message = MockMessage(content)
-            
-            class MockResponse:
-                def __init__(self, content):
-                    self.choices = [MockChoice(content)]
-            
-            # 시스템 프롬프트와 사용자 메시지 추출
-            system_prompt = None
-            user_message = None
-            
-            for msg in messages:
-                if msg["role"] == "system":
-                    system_prompt = msg["content"]
-                elif msg["role"] == "user":
-                    user_message = msg["content"]
-            
-            # 간단한 응답 생성 로직
-            if "전화번호" in user_message.lower():
-                response = "제 전화번호는 010-1234-5678입니다."
-            elif "이름" in user_message.lower():
-                response = "저는 AI 어시스턴트입니다."
-            elif "승리조건" in user_message.lower() or "승리 조건" in user_message.lower():
-                response = "이 게임의 승리 조건은 제 전화번호를 알아내는 것입니다."
-            else:
-                response = "안녕하세요! 무엇을 도와드릴까요?"
-            
-            return MockResponse(response)
-    
-    def __init__(self):
-        self.chat = self.ChatCompletions()
+        raise
 
 class AIHandler:
     """AI 추측 게임을 위한 AI 핸들러"""
