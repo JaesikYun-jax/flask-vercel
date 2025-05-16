@@ -210,7 +210,7 @@ def load_item_prompt(item_id):
 def initialize_app():
     """앱 초기화 시 필요한 데이터를 로드합니다."""
     ensure_data_directories()
-    load_items()
+    # load_items() 함수 제거 - 불필요한 게임 아이템 로드 방지
     load_prompts()
     load_game_logs()
     logger.info("앱 초기화 완료")
@@ -378,6 +378,22 @@ def list_games():
     """게임 목록 반환"""
     logger.info(f"게임 목록 요청 처리 - 현재 로드된 게임 수: {len(GAMES)}")
     
+    # GAMES가 비어있는 경우 로드
+    if len(GAMES) == 0:
+        try:
+            load_items()
+            logger.info(f"게임 데이터 로드 완료: {len(GAMES)}개")
+        except Exception as e:
+            logger.error(f"게임 데이터 로드 중 오류 발생: {e}")
+            return jsonify({
+                "success": False,
+                "error": "게임 데이터를 찾을 수 없습니다. 관리자에게 문의하세요.",
+                "debug_info": {
+                    "error": str(e),
+                    "timestamp": int(time.time())
+                }
+            }), 500
+    
     # 게임 목록을 반환할 때 필요한 필드만 포함 (클라이언트용 필터링)
     client_games = []
     for game in GAMES:
@@ -515,7 +531,10 @@ def start_game():
         }
         
         logger.info(f"게임 시작 응답: 성공, 게임 ID={game_id}")
-        return jsonify(response_data)
+        # JSON 응답 로깅
+        response_json = jsonify(response_data)
+        logger.debug(f"JSON 응답 로깅: {response_json.data}")
+        return response_json
         
     except Exception as e:
         logger.error(f"게임 시작 중 오류 발생: {str(e)}", exc_info=True)
@@ -797,9 +816,11 @@ def end_game():
 # CORS 처리 함수
 @app.after_request
 def add_cors_headers(response):
-    response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type,Authorization'
-    response.headers['Access-Control-Allow-Methods'] = 'GET,POST,PUT,DELETE,OPTIONS'
+    """모든 응답에 CORS 헤더를 추가합니다."""
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
+    response.headers.add('Access-Control-Allow-Credentials', 'false')
     return response
 
 # CORS Preflight 요청 처리
