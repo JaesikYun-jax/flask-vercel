@@ -431,36 +431,19 @@ def start_game():
         selected_game_id = data.get('item_id') or data.get('game_id')
         logger.info(f"선택된 게임 ID: {selected_game_id}")
         
-        # 게임 목록 가져오기
-        games = [
-            {
-                "id": 1,
-                "title": "플러팅 고수! 전화번호 따기",
-                "category": "플러팅",
-                "character_name": "윤지혜", 
-                "character_setting": "당신은 카페에서 우연히 마주친 매력적인 사람입니다. 친절하지만 쉽게 개인정보를 알려주지 않는 성격입니다.",
-                "max_turns": 5,
-                "win_condition": "상대방의 전화번호를 얻어낸다",
-                "lose_condition": "턴 제한을 초과하거나 상대방이 대화를 거부한다",
-                "difficulty": "보통"
-            },
-            {
-                "id": 2,
-                "title": "파티에서 번호 교환하기",
-                "category": "플러팅",
-                "character_name": "김민준",
-                "character_setting": "당신은 친구의 파티에서 만난 사람입니다. 사교적이지만 많은 사람들에게 관심을 받고 있어 쉽게 번호를 주지 않습니다.",
-                "max_turns": 4,
-                "win_condition": "상대방과 번호를 교환한다",
-                "lose_condition": "턴 제한을 초과하거나 상대방이 관심을 잃는다",
-                "difficulty": "쉬움"
-            }
-        ]
+        # 글로벌 GAMES 변수 사용
+        if len(GAMES) == 0:
+            error_msg = "게임 데이터를 찾을 수 없습니다. 관리자에게 문의하세요."
+            logger.error(error_msg)
+            return jsonify({
+                "success": False,
+                "error": error_msg
+            }), 500
         
         # 게임 선택
         if not selected_game_id:
             # 게임 ID가 제공되지 않은 경우 랜덤 선택
-            target_game = random.choice(games)
+            target_game = random.choice(GAMES)
             logger.info(f"랜덤 게임 선택됨: ID={target_game['id']}, 제목={target_game['title']}")
         else:
             # 선택된 ID로 게임 찾기
@@ -469,14 +452,14 @@ def start_game():
                     selected_game_id = int(selected_game_id)
                 logger.info(f"게임 ID 변환 후: {selected_game_id}, 타입: {type(selected_game_id)}")
                 
-                target_game = next((game for game in games if game['id'] == selected_game_id), None)
+                target_game = next((game for game in GAMES if game['id'] == selected_game_id), None)
                 
                 if not target_game:
                     logger.warning(f"선택한 게임 ID {selected_game_id}를 찾을 수 없음, 랜덤 선택으로 대체")
-                    target_game = random.choice(games)
+                    target_game = random.choice(GAMES)
             except Exception as e:
                 logger.error(f"게임 ID 변환 중 오류: {str(e)}")
-                target_game = random.choice(games)
+                target_game = random.choice(GAMES)
         
         # 게임 ID 생성
         game_id = f"game_{random.randint(10000, 99999)}"
@@ -526,7 +509,8 @@ def start_game():
                 "selected_game_id": selected_game_id,
                 "target_game_id": target_game.get('id'),
                 "session_stored": game_id in GAME_SESSIONS,
-                "api_key_valid": api_valid
+                "api_key_valid": api_valid,
+                "games_loaded": len(GAMES)
             }
         }
         
