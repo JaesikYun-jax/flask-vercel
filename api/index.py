@@ -376,29 +376,30 @@ def health_check():
 @app.route('/api/games')
 def list_games():
     """게임 목록 반환"""
-    games = [
-        {
-            "id": 1,
-            "title": "플러팅 고수! 전화번호 따기",
-            "category": "플러팅",
-            "character_name": "윤지혜", 
-            "max_turns": 5,
-            "win_condition": "상대방의 전화번호를 얻어낸다",
-            "difficulty": "보통"
-        },
-        {
-            "id": 2,
-            "title": "파티에서 번호 교환하기",
-            "category": "플러팅",
-            "character_name": "김민준",
-            "max_turns": 4,
-            "win_condition": "상대방과 번호를 교환한다",
-            "difficulty": "쉬움"
-        }
-    ]
+    logger.info(f"게임 목록 요청 처리 - 현재 로드된 게임 수: {len(GAMES)}")
+    
+    # 게임 목록을 반환할 때 필요한 필드만 포함 (클라이언트용 필터링)
+    client_games = []
+    for game in GAMES:
+        client_games.append({
+            "id": game.get("id"),
+            "title": game.get("title"),
+            "category": game.get("category"),
+            "character_name": game.get("character_name"),
+            "max_turns": game.get("max_turns"),
+            "win_condition": game.get("win_condition"),
+            "difficulty": game.get("difficulty")
+        })
+    
+    logger.info(f"게임 목록 응답: {len(client_games)}개 게임 반환")
     return jsonify({
         "success": True,
-        "data": games
+        "data": client_games,
+        "debug_info": {
+            "source": "game_items.json",
+            "games_loaded": len(GAMES),
+            "timestamp": int(time.time())
+        }
     })
 
 # 게임 시작 API
